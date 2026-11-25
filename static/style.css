@@ -46,3 +46,45 @@
 .native-menu .raw-detail{overflow-wrap:anywhere}
 .native-menu .setting-row label{flex-wrap:wrap}
 @media(max-width:700px){.picture-content #rows{max-width:100%}.native-menu.group{padding:10px}}
+
+/* Compact workspace: device management in header, mirror directly above native menu. */
+header{padding:10px 16px;gap:12px;align-items:center;flex-wrap:wrap}
+header>a{flex:0 1 260px;min-width:160px}
+header .brand{width:100%;max-width:260px}
+.header-device{flex:1 1 620px;min-width:0}
+.header-device .device-toolbar{background:transparent;border:0;padding:0;margin:0;gap:6px;align-items:end}
+.header-device .device-toolbar>label{font-size:11px;gap:2px;min-width:85px}
+.header-device .device-toolbar>label:first-child{min-width:145px;flex:1.7}
+.header-device .device-toolbar>label:has(#devicePort){min-width:65px;max-width:80px}
+.header-device input,.header-device select,.header-device button,.header-actions button{padding:5px 7px;font-size:12px}
+.header-device .connection-inline{flex:1 1 100%;border:0;padding:0;min-width:0;display:flex;align-items:baseline;gap:6px;font-size:11px}
+.header-device .connection-inline p{margin:0;overflow-wrap:anywhere}
+.header-device #deviceMessage:empty{display:none}
+.header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+main{padding:12px 16px}
+.picture-layout{grid-template-columns:minmax(175px,220px) minmax(0,1fr);gap:12px}
+.settings-sidebar{min-width:0;display:flex;flex-direction:column;gap:10px}
+.settings-sidebar .toolbar{flex-direction:column;align-items:stretch;padding:10px;margin:0;gap:8px}
+.settings-sidebar .toolbar label{min-width:0;width:100%;font-size:12px}
+.settings-sidebar .toolbar input,.settings-sidebar .toolbar select{width:100%;min-width:0}
+.settings-sidebar .notice{margin:0;padding:0 4px}
+.picture-content .remote-panel{margin:0 0 10px}
+.picture-content .remote-panel .toolbar{padding:8px;gap:6px;margin:6px}
+.picture-content .remote-panel .toolbar label{min-width:80px;flex:1;font-size:11px}
+.picture-content .remote-panel .toolbar button,.picture-content .remote-panel .toolbar select{padding:5px 8px;font-size:12px}
+.picture-content .remote-layout{padding:8px;gap:8px;grid-template-columns:minmax(0,1fr) minmax(150px,190px)}
+.picture-content .remote-panel .notice{margin:4px 0 8px}
+.picture-content .diagnostic-toggle{justify-content:flex-start}
+.picture-content #liveScope,.picture-content #liveMessage{text-align:left}
+.utility-dialog{color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px;width:min(620px,calc(100vw - 24px));max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 12px 48px #0008}
+.utility-dialog::backdrop{background:#14151bb3}
+.dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.dialog-heading h2{font-size:17px;margin:0}
+.dialog-heading button{font-size:20px;line-height:1;padding:5px 10px}
+.utility-dialog .toolbar{padding:10px;gap:8px}
+.utility-dialog .toolbar>label{flex:1;min-width:0}
+.utility-dialog .toolbar input,.utility-dialog .toolbar select{max-width:100%}
+.utility-dialog .stats{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:0;gap:8px}
+.utility-dialog .metric{padding:10px}
+.utility-dialog .metric strong{font-size:20px;overflow-wrap:anywhere}
+@media(max-width:700px){header>a{flex-basis:220px}.header-device{order:3;flex-basis:100%}.picture-layout{grid-template-columns:1fr}.settings-sidebar .toolbar{flex-direction:row;flex-wrap:wrap}.settings-sidebar .toolbar label{flex:1 1 140px;width:auto}.picture-content .remote-layout{grid-template-columns:1fr}}
