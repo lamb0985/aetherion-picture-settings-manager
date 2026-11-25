@@ -182,11 +182,20 @@ $("import").onclick=async()=>{
 $("connect").onclick=async()=>{
  const b=$("connect");b.disabled=true;$("connection").textContent="Checking…";
  try{
+  if(writing)throw Error("Wait for current adjustment to finish");
+  epoch++;live=null;liveSignature="";$("liveEdit").checked=false;
+  for(let i=0;reading&&i<200;i++)await new Promise(resolve=>setTimeout(resolve,25));
+  if(reading)throw Error("Live read still busy");
   const r=await fetch("/api/connection",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const result=await r.json();
   if(!r.ok)throw Error(result.error||"Connection failed");
   $("connection").textContent="Connected";$("connection").className="status ok";
   const c=result.context;
   $("context").textContent="Live source: "+(result.source_name??("Source "+c.source))+" · Signal "+c.signal_dr_type+" · Mode "+c.pic_mode+(data.summary.source!=null&&data.summary.source!==c.source?" — differs from imported snapshot":"");
+  // Quiesce polling before the mirror acquires the shared ADB lock.
+  epoch++;live=null;liveSignature="";$("liveEdit").checked=false;
+  for(let i=0;reading&&i<200;i++)await new Promise(resolve=>setTimeout(resolve,25));
+  if(window.apsmStartMirror)await window.apsmStartMirror();
+  else $("remoteMessage").textContent="Remote module unavailable; use Start mirror after it loads.";
   await setLive(true);
  }catch(e){$("connection").textContent="Connection unavailable";$("connection").className="status error";$("context").textContent=e.message}finally{b.disabled=false}
 };
@@ -205,7 +214,7 @@ $("scan").onclick=async()=>{if(!confirm("Scan all supported profiles on the curr
 $("cancelScan").onclick=()=>api("/api/scan/cancel",{}).catch(e=>$("scanMessage").textContent=e.message);
 let lastScan="";
 async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","import"])$(id).disabled=busy;$("cancelScan").disabled=!busy;if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
-refreshDevices().then(pollScan).then(()=>{if(registry.active)$("connect").click()}).catch(e=>$("message").textContent=e.message);
+refreshDevices().then(pollScan).then(()=>{const connect=()=>{if(registry.active&&!scanBusy)$("connect").click()};if(document.readyState==="complete")connect();else window.addEventListener("load",connect,{once:true})}).catch(e=>$("message").textContent=e.message);
 setInterval(pollScan,2000);
 
 $("rawToggle").onchange=()=>document.body.classList.toggle("show-raw",$("rawToggle").checked);
