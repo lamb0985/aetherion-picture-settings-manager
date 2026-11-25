@@ -44,3 +44,6 @@ ENUMS = {
 LIVE_RANGES = {"backlight":[0,10],"contrast":[0,100],"brightness":[-50,50],"saturation":[0,100],"hue":[-50,50],"sharpness":[0,50],"memc_dejudder":[0,10],"memc_deblur":[0,10],"2p_wb_gain_red":[-25,25],"2p_wb_gain_green":[-25,25],"2p_wb_gain_blue":[-25,25],"2p_wb_offset_red":[-25,25],"2p_wb_offset_green":[-25,25],"2p_wb_offset_blue":[-25,25]}
 LIVE_ENUMS = {"color_temp":[0,1,2,3],"memc":[0,1,2,3,4,5],"pq_apply":[0,1],"20p_wb":[0,1]}
 EXTRA_SCAN_KEYS = ["temp_wb","ai_sr","nr","mpeg_nr","high_brightness","active_contrast","memc_dejudder","memc_deblur","backlight","brightness"]
+
+# Discrete values from native preference XML and laser-specific arrays.
+LIVE_ENUMS.update({"high_dynamic":[0,1],"dark_detail":[0,1],"active_contrast":[0,1,2,3],"high_brightness":[0,1],"hdr_enhancer":[0,1],"temp_wb":[0,1],"color_space":[0,1,2,3,4],"dynamic_color_enhancer":[0,1,2,3],"gradient_smooth":[0,1,2,3],"ai_sr":[0,1,2,3],"nr":[0,1,2,3],"mpeg_nr":[0,1,2,3],"gamma_adjust":[0,1,2,3,12,13]})

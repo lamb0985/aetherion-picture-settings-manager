@@ -204,7 +204,7 @@ def live_setting():
             bounds=current.get("range")
             if not isinstance(bounds,list) or len(bounds)!=3 or bounds[0]!=lo or bounds[2]!=hi or not lo<=value<=hi:
                 raise ValueError("Live range does not match expected bounds")
-        elif value not in (MODES.get(expected["signal_dr_type"],()) if key=="pic_mode" else LIVE_ENUMS[key]):
+        elif value not in (MODES.get(expected["signal_dr_type"],()) if key=="pic_mode" else LIVE_ENUMS[key]) or (key=="gamma_adjust" and value>=12 and expected["signal_dr_type"]<=2 and value!=current["value"]):
             raise ValueError("Unsupported enumeration value")
         check()
         attempted=True

@@ -15,6 +15,7 @@ function display(key,info,name){if(key==="pic_mode"){return profileLabel(info.va
 function group(title){const section=document.createElement("section");section.className="group";const h=document.createElement("h2");h.textContent=title;section.append(h);return section}
 function matches(key,name){const f=$("filter").value.toLowerCase();return (key+" "+name).toLowerCase().includes(f)}
 const liveRanges={"backlight":[0,10],"contrast":[0,100],"brightness":[-50,50],"saturation":[0,100],"hue":[-50,50],"sharpness":[0,50],"memc_dejudder":[0,10],"memc_deblur":[0,10],"2p_wb_gain_red":[-25,25],"2p_wb_gain_green":[-25,25],"2p_wb_gain_blue":[-25,25],"2p_wb_offset_red":[-25,25],"2p_wb_offset_green":[-25,25],"2p_wb_offset_blue":[-25,25]},liveEnums={"color_temp":[0,1,2,3],"memc":[0,1,2,3,4,5],"pq_apply":[0,1],"20p_wb":[0,1]};
+Object.assign(liveEnums,{"high_dynamic":[0,1],"dark_detail":[0,1],"active_contrast":[0,1,2,3],"high_brightness":[0,1],"hdr_enhancer":[0,1],"temp_wb":[0,1],"color_space":[0,1,2,3,4],"dynamic_color_enhancer":[0,1,2,3],"gradient_smooth":[0,1,2,3],"ai_sr":[0,1,2,3],"nr":[0,1,2,3],"mpeg_nr":[0,1,2,3],"gamma_adjust":[0,1,2,3,12,13]});
 let live=null,reading=false,writing=false,dragging=false,scanBusy=false,epoch=0,liveSignature="";
 const isLive=()=>$("liveEdit").checked;
 const liveReady=()=>isLive()&&live&&live.device===registry.active&&!scanBusy;
@@ -31,7 +32,7 @@ function menuRow(section,key,info,name=label(key)){
  if(editable&&(numeric||choices?.includes(info.value))){
    const control=document.createElement(numeric?"input":"select");control.setAttribute("aria-label",name);
    if(numeric){control.type="range";control.min=limits[0];control.max=limits[1];control.step=1;control.oninput=()=>{value.textContent=control.value};control.onpointerdown=()=>{dragging=true};control.onkeydown=()=>{dragging=true}}
-   else for(const choice of choices)option(control,choice,display(key,{value:choice},name));
+   else for(const choice of choices){if(key==="gamma_adjust"&&choice>=12&&choice!==info.value&&live.context.signal_dr_type<=2)continue;option(control,choice,display(key,{value:choice},name))}
    control.value=info.value;control.disabled=writing||(live.settings.pq_apply.value===1&&!$("allSourcesAck").checked);
    const state=live;control.onchange=()=>{dragging=false;writeLive(key,name,Number(control.value),state,control)};
    control.onblur=()=>{dragging=false};control.onpointercancel=()=>{dragging=false};
@@ -134,7 +135,7 @@ const nativeGroups={
 };
 const modeLabels=["Vivid","Standard","Energy Saving","Theater","Game / PC","Sports","Theater Night","Filmmaker","IMAX"];
 function profileLabel(id,p){return Number($("signal").value)<=2&&modeLabels[Number(id)]?modeLabels[Number(id)]:p.name||"Mode"}
-const fallbackEnums={iris_mode:{0:"Off",1:"Cinema 1",2:"Cinema 2",3:"Manual",4:"Dynamic"},pq_apply:{0:"Current Source",1:"All Sources"},color_temp:{0:"Warm1",1:"Warm2",2:"Standard",3:"Cool"},color_space:{0:"Native",1:"Auto",2:"BT.709",3:"DCI-P3",4:"BT.2020"},gamma_adjust:{0:"2.0",1:"2.2",2:"2.4",3:"BT1886",12:"HLG",13:"ST2084"},memc:{0:"Off",1:"Custom",2:"Film",3:"Clear",4:"Standard",5:"Smooth"}};
+const fallbackEnums={active_contrast:{0:"Off",1:"Low",2:"Medium",3:"High"},dynamic_color_enhancer:{0:"Off",1:"Low",2:"Medium",3:"High"},gradient_smooth:{0:"Off",1:"Low",2:"Medium",3:"High"},ai_sr:{0:"Off",1:"Low",2:"Medium",3:"High"},nr:{0:"Off",1:"Low",2:"Medium",3:"High"},mpeg_nr:{0:"Off",1:"Low",2:"Medium",3:"High"},iris_mode:{0:"Off",1:"Cinema 1",2:"Cinema 2",3:"Manual",4:"Dynamic"},pq_apply:{0:"Current Source",1:"All Sources"},color_temp:{0:"Warm1",1:"Warm2",2:"Standard",3:"Cool"},color_space:{0:"Native",1:"Auto",2:"BT.709",3:"DCI-P3",4:"BT.2020"},gamma_adjust:{0:"2.0",1:"2.2",2:"2.4",3:"BT1886",12:"HLG",13:"ST2084"},memc:{0:"Off",1:"Custom",2:"Film",3:"Clear",4:"Standard",5:"Smooth"}};
 const switchLabels=new Set(["Enhanced Black Level","Dark Detail","Brightness Enhancer","HDR Enhancer","Color Temperature Adaptation","20 Point"]);
 function resolve(p,keys){return keys.find(k=>Object.prototype.hasOwnProperty.call(p.settings,k))}
 function showSetting(s,p,name,keys){const k=resolve(p,keys);if(k){menuRow(s,k,p.settings[k],name)}else if(matches(keys.join(" "),name)){const r=document.createElement("div");r.className="setting-row";r.textContent=name;const c=document.createElement("small");c.textContent=isLive()?"Not returned by projector":"Not in snapshot";r.append(c);s.append(r)}}
