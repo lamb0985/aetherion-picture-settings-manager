@@ -13,12 +13,12 @@ const enumNames={pq_apply:["picture_apply_picture_settings_entries","picture_app
 function label(key){return names[key]||key.replace(/_/g," ").replace(/\b\w/g,s=>s.toUpperCase())}
 function display(key,info,name){if(key==="pic_mode"){return profileLabel(info.value,profiles()[String(info.value)]||{})}const pair=enumNames[key];if(pair){const e=data.menu_enumerations||{},labels=e[pair[0]],values=e[pair[1]];if(Array.isArray(labels)&&Array.isArray(values)){const i=values.findIndex(v=>String(v)===String(info.value));if(i>=0&&i<labels.length)return labels[i]}}return fallbackEnums[key]?.[info.value]??info.display_value??(["AI Contrast","Dynamic Color Enhancer","AI Super Resolution"].includes(name)?["Off","Low","Medium","High"][info.value]:undefined)??(switchLabels.has(name)&&[0,1].includes(info.value)?(info.value===1?"On":"Off"):info.value)??"—"}
 function group(title){const section=document.createElement("section");section.className="group";const h=document.createElement("h2");h.textContent=title;section.append(h);return section}
-function matches(key,name){const f=$("filter").value.toLowerCase();return (key+" "+name).toLowerCase().includes(f)}
+function matches(key,name){return true}
 const liveRanges={"backlight":[0,10],"contrast":[0,100],"brightness":[-50,50],"saturation":[0,100],"hue":[-50,50],"sharpness":[0,50],"memc_dejudder":[0,10],"memc_deblur":[0,10],"2p_wb_gain_red":[-25,25],"2p_wb_gain_green":[-25,25],"2p_wb_gain_blue":[-25,25],"2p_wb_offset_red":[-25,25],"2p_wb_offset_green":[-25,25],"2p_wb_offset_blue":[-25,25]},liveEnums={"color_temp":[0,1,2,3],"memc":[0,1,2,3,4,5],"pq_apply":[0,1],"20p_wb":[0,1]};
 Object.assign(liveEnums,{"high_dynamic":[0,1],"dark_detail":[0,1],"active_contrast":[0,1,2,3],"high_brightness":[0,1],"hdr_enhancer":[0,1],"temp_wb":[0,1],"color_space":[0,1,2,3,4],"dynamic_color_enhancer":[0,1,2,3],"gradient_smooth":[0,1,2,3],"ai_sr":[0,1,2,3],"nr":[0,1,2,3],"mpeg_nr":[0,1,2,3],"gamma_adjust":[0,1,2,3,12,13]});
-let live=null,reading=false,writing=false,dragging=false,scanBusy=false,epoch=0,liveSignature="";
+let bulkBusy=false;let live=null,reading=false,writing=false,dragging=false,scanBusy=false,epoch=0,liveSignature="";
 const isLive=()=>$("liveEdit").checked;
-const liveReady=()=>isLive()&&live&&live.device===registry.active&&!scanBusy;
+const liveReady=()=>isLive()&&live&&live.device===registry.active&&!scanBusy&&!bulkBusy;
 let activeTile=null,optionMenu=null;
 const parentMenu={luminance:"picture",color:"picture",clarity:"picture",calibration:"picture",white_balance:"calibration",wb2:"white_balance",white_balance_20_point:"white_balance",gamma_calibration:"calibration",color_management:"calibration",iris:"laser"};
 function focusTile(row,key){activeTile=key;for(const tile of $("rows").querySelectorAll(".native-selected"))tile.classList.remove("native-selected");row.classList.add("native-selected")}
@@ -83,11 +83,11 @@ function selectLiveContext(state){
  $("liveScope").textContent=state.settings.pq_apply?.value===1?"All Sources — enable the acknowledgment to unlock editing on all inputs":state.settings.pq_apply?.value===0?"Current Source":"Apply scope unknown — editing disabled";
 }
 async function syncLive(){
- if(!isLive()||!registry.active||reading||writing||dragging||scanBusy)return;
+ if(!isLive()||!registry.active||reading||writing||dragging||scanBusy||bulkBusy)return;
  reading=true;const generation=epoch,device=registry.active,menu=tab;
  try{
   const state=await api("/api/live/state",{device,keys:liveKeys()});
-  if(generation!==epoch||!isLive()||device!==registry.active||menu!==tab||writing||dragging||scanBusy)return;
+  if(generation!==epoch||!isLive()||device!==registry.active||menu!==tab||writing||dragging||scanBusy||bulkBusy)return;
   const signature=JSON.stringify([menu,state]);
   if(signature!==liveSignature||!live){live=state;liveSignature=signature;selectLiveContext(state);render()}
  }catch(e){
@@ -198,7 +198,7 @@ async function load(){
  metric("Snapshot source",data.summary.source_name??data.summary.source);metric("Profiles",data.summary.profiles);metric("General records",data.summary.general);metric("Indexed records",data.summary.indexed);
  if(isLive()){liveSignature="";await syncLive()}else chooseProfiles();
 }
-$("signal").onchange=chooseProfiles;$("profile").onchange=()=>{selectedLevels={};tabs();render()};$("filter").oninput=render;
+$("signal").onchange=chooseProfiles;$("profile").onchange=()=>{selectedLevels={};tabs();render()};
 $("import").onclick=async()=>{
  const b=$("import");b.disabled=true;
  try{
@@ -243,7 +243,7 @@ $("dbSource").onchange=()=>load().catch(e=>$("message").textContent=e.message);
 $("scan").onclick=async()=>{if(!confirm("Scan all supported profiles on the current source? Picture modes and calibration selectors will temporarily change. Do not change inputs or settings during the scan."))return;try{await api("/api/scan",{});await pollScan()}catch(e){$("scanMessage").textContent=e.message}};
 $("cancelScan").onclick=()=>api("/api/scan/cancel",{}).catch(e=>$("scanMessage").textContent=e.message);
 let lastScan="";
-async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","import"])$(id).disabled=busy;$("cancelScan").disabled=!busy;$("openScan").textContent=busy?"Scan · "+s.done+"/"+s.total:"Scan";$("openScan").classList.toggle("active",busy);if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
+async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","import"])$(id).disabled=busy||bulkBusy;$("cancelScan").disabled=!busy;$("openScan").textContent=busy?"Scan · "+s.done+"/"+s.total:"Scan";$("openScan").classList.toggle("active",busy);if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
 refreshDevices().then(pollScan).then(()=>{const connect=()=>{if(registry.active&&!scanBusy)$("connect").click()};if(document.readyState==="complete")connect();else window.addEventListener("load",connect,{once:true})}).catch(e=>$("message").textContent=e.message);
 setInterval(pollScan,2000);
 
@@ -266,7 +266,7 @@ function alignNativeMenu(){
  const rect=screen.getBoundingClientRect(),grid=rows.parentElement.getBoundingClientRect();
  const aligned=panel.open&&rect.height>0&&window.innerWidth>1000;
  rows.classList.toggle("mirror-aligned",aligned);
- if(aligned){rows.style.setProperty("--mirror-offset",Math.max(0,rect.top-grid.top)+"px");rows.style.setProperty("--mirror-height",rect.height+"px")}
+ if(aligned){rows.style.setProperty("--mirror-offset",Math.max(0,rect.top-grid.top-($("menuColumn").querySelector(".profile-toolbar").offsetHeight+8))+"px");rows.style.setProperty("--mirror-height",rect.height+"px")}
 }
 const mirrorLayoutObserver=new ResizeObserver(alignNativeMenu);
 mirrorLayoutObserver.observe($("remoteScreen"));
@@ -274,3 +274,15 @@ mirrorLayoutObserver.observe($("remotePanel"));
 $("remotePanel").addEventListener("toggle",alignNativeMenu);
 window.addEventListener("resize",alignNativeMenu);
 alignNativeMenu();
+
+let bulkOptions=[],bulkToken=null,bulkLast="idle";
+function invalidateBulk(){bulkToken=null;$("bulkApply").disabled=true;$("bulkResults").replaceChildren()}
+function bulkRows(rows){$("bulkResults").replaceChildren();for(const item of rows){const el=document.createElement("div");el.className="bulk-result";el.textContent=item.name+" · "+item.status+" · "+item.reason;$("bulkResults").append(el)}}
+function bulkSelect(){invalidateBulk();const item=bulkOptions.find(x=>x.key===$("bulkKey").value);$("bulkValue").replaceChildren();$("bulkIndexLabel").hidden=!item?.index_count;$("bulkIndex").replaceChildren();if(item?.index_count)for(let i=0;i<item.index_count;i++)option($("bulkIndex"),i,calibrationLabel(item.section,i,{}));for(const v of item?.values||[])option($("bulkValue"),v,display(item.key,{value:v},label(item.key)));$("bulkHint").textContent=item?(item.enabled?item.count+" scanned profiles contain this setting. Live checks required.":item.reason):"No scan catalog";$("bulkPreview").disabled=!item?.enabled||bulkBusy}
+$("openBulk").onclick=async()=>{try{if(!$("bulkDialog").open)$("bulkDialog").showModal();const result=await api("/api/bulk/options");bulkOptions=result.settings;$("bulkKey").replaceChildren();for(const item of bulkOptions)option($("bulkKey"),item.key,label(item.key)+(item.enabled?"":" (read-only)"));const first=bulkOptions.find(x=>x.enabled);if(first)$("bulkKey").value=first.key;$("bulkProfiles").replaceChildren();for(const [sid,g] of Object.entries(data.profiles||{}))for(const [mid,p] of Object.entries(g.profiles||{})){const l=document.createElement("label"),c=document.createElement("input");c.type="checkbox";c.value=sid+":"+mid;c.onchange=invalidateBulk;l.append(c, g.format+" / "+p.name);$("bulkProfiles").append(l)}bulkSelect();await pollBulk()}catch(e){$("bulkStatus").textContent=e.message}};
+$("bulkKey").onchange=bulkSelect;$("bulkValue").onchange=invalidateBulk;$("bulkScope").onchange=()=>{$("bulkProfiles").hidden=$("bulkScope").value!=="selected";invalidateBulk()};
+$("bulkPreview").onclick=async()=>{invalidateBulk();try{const result=await api("/api/bulk/preview",{device:registry.active,key:$("bulkKey").value,value:Number($("bulkValue").value),scope:$("bulkScope").value,selected:[...$("bulkProfiles").querySelectorAll("input:checked")].map(c=>c.value)});bulkToken=result.token;bulkRows(result.rows);$("bulkStatus").textContent=result.source+" · "+result.rows.filter(x=>x.status==="candidate").length+" candidates · "+result.rows.filter(x=>x.status==="skip").length+" skipped";$("bulkApply").disabled=!result.rows.some(x=>x.status==="candidate")}catch(e){$("bulkStatus").textContent=e.message}};
+$("bulkApply").onclick=async()=>{if(!bulkToken||!confirm("Apply the selected value to candidate profiles on the current input? The mirror will stop temporarily. Do not operate the projector during the operation."))return;const token=bulkToken;bulkToken=null;$("bulkApply").disabled=true;bulkBusy=true;epoch++;live=null;liveSignature="";render();try{for(let i=0;reading&&i<200;i++)await new Promise(r=>setTimeout(r,25));await api("/api/bulk",{token});await pollBulk()}catch(e){bulkBusy=false;$("bulkStatus").textContent=e.message;syncLive()}};
+$("bulkCancel").onclick=()=>api("/api/bulk/cancel",{}).catch(e=>$("bulkStatus").textContent=e.message);
+async function pollBulk(){try{const s=await api("/api/bulk"),was=bulkBusy;bulkBusy=s.status==="running";$("bulkProgress").max=s.total||1;$("bulkProgress").value=s.done;if(!bulkToken)$("bulkStatus").textContent=s.status+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"")+(s.backup?" · Backup: "+s.backup:"");if(s.status!=="idle"&&!bulkToken)bulkRows(s.results||[]);$("bulkCancel").disabled=!bulkBusy;$("openBulk").textContent=bulkBusy?"Bulk Apply · "+s.done+"/"+s.total:"Bulk Apply";for(const id of ["bulkKey","bulkValue","bulkScope"])$(id).disabled=bulkBusy;$("bulkPreview").disabled=bulkBusy||!bulkOptions.find(x=>x.key===$("bulkKey").value)?.enabled;if(was&&!bulkBusy){epoch++;live=null;liveSignature="";await syncLive();if(window.apsmStartMirror)window.apsmStartMirror()}bulkLast=s.status}catch(e){$("bulkStatus").textContent=e.message}}
+setInterval(pollBulk,1500);pollBulk();

@@ -18,6 +18,7 @@ from werkzeug.exceptions import BadRequest
 from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name, LIVE_RANGES, LIVE_ENUMS, SIGNALS
 import device_manager as devices
 import scanner
+import bulk
 import sqlite3
 import time
 
@@ -285,6 +286,78 @@ def connect():
         return jsonify(error=str(exc)), 503
     finally:
         ADB_LOCK.release()
+
+BULK = {"status":"idle","done":0,"total":0,"results":[]}
+BULK_CANCEL=threading.Event()
+BULK_PLAN=None
+
+@app.get("/api/bulk/options")
+def bulk_options():
+    d=devices.active_device(CONFIG)
+    if not d: return jsonify(error="Save a device first"),400
+    return jsonify(settings=bulk.inventory(devices.snapshot(CONFIG,d["id"])),device=d["id"])
+
+@app.get("/api/bulk")
+def bulk_status():
+    return jsonify(dict(BULK))
+
+@app.post("/api/bulk/cancel")
+def bulk_cancel():
+    BULK_CANCEL.set()
+    return jsonify(status="cancellation requested")
+
+@app.post("/api/bulk/preview")
+def bulk_preview():
+    global BULK_PLAN
+    if not ADB_LOCK.acquire(blocking=False): return jsonify(error="ADB operation in progress"),409
+    try:
+        p=request.get_json()
+        d=devices.active_device(CONFIG)
+        if not d or d["id"]!=p.get("device"): raise ValueError("Selected device changed")
+        target=devices.address(d["host"],d["port"])
+        original=live_context(target)
+        snapshot=devices.snapshot(CONFIG,d["id"],original["source"])
+        rows=bulk.plan(snapshot,p["key"],p["value"],p["scope"],original,p.get("selected",[]))
+        token=secrets.token_urlsafe(24)
+        BULK_PLAN={"token":token,"created":time.monotonic(),"device":d["id"],"original":original,"key":p["key"],"value":p["value"],"rows":rows}
+        return jsonify(token=token,rows=rows,source=source_name(original["source"]))
+    except Exception as exc: return jsonify(error=str(exc)),400
+    finally: ADB_LOCK.release()
+
+@app.post("/api/bulk")
+def start_bulk():
+    global BULK_PLAN
+    if not ADB_LOCK.acquire(blocking=False): return jsonify(error="ADB operation in progress"),409
+    try:
+        p=request.get_json()
+        plan=BULK_PLAN
+        if not plan or p.get("token")!=plan["token"] or time.monotonic()-plan["created"]>300: raise ValueError("Preview expired; preview again")
+        d=devices.active_device(CONFIG)
+        if not d or d["id"]!=plan["device"]: raise ValueError("Selected device changed")
+        target=devices.address(d["host"],d["port"])
+        if live_context(target)!=plan["original"]: raise ValueError("Projector context changed; preview again")
+        if not any(x["status"]=="candidate" for x in plan["rows"]): raise ValueError("No eligible candidates")
+        remote.stop()
+        folder=Path(os.getenv("BACKUP_DIR","/backups"))
+        folder.mkdir(parents=True,exist_ok=True)
+        backup=folder/("bulk-"+datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")+".json")
+        BULK_PLAN=None;BULK_CANCEL.clear()
+        BULK.update(status="running",done=0,total=len(plan["rows"]),results=[],error=None,backup=backup.name)
+        def progress(row):
+            BULK["results"].append(row)
+            BULK["done"]=len(BULK["results"])
+        def worker():
+            try:
+                bulk.run(lambda tx,p:picture_call(target,tx,p),lambda:live_context(target),plan["original"],plan["key"],plan["value"],plan["rows"],backup,progress,BULK_CANCEL.is_set)
+                BULK.update(status="complete")
+            except InterruptedError as exc: BULK.update(status="cancelled",error=str(exc))
+            except Exception as exc: BULK.update(status="failed",error=str(exc))
+            finally: ADB_LOCK.release()
+        threading.Thread(target=worker,daemon=True).start()
+        return jsonify(dict(BULK)),202
+    except Exception as exc:
+        ADB_LOCK.release()
+        return jsonify(error=str(exc)),400
 
 SCAN = {"status":"idle","done":0,"total":sum(map(len,MODES.values()))}
 CANCEL = threading.Event()
