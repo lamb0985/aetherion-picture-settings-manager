@@ -11,3 +11,5 @@
 .device-toolbar>label{min-width:0;flex:1}.device-toolbar select,.device-toolbar input{width:100%;min-width:0}.device-toolbar>label:first-child{flex:2;min-width:180px}.device-toolbar>label:has(#devicePort){max-width:95px}.connection-inline{border-left:1px solid var(--line);padding-left:12px;flex:1;min-width:150px}.remote-keys [data-key="HDMI_1"]{grid-area:8/1}.remote-keys [data-key="HDMI_2"]{grid-area:8/2}.remote-keys [data-key="HDMI_3"]{grid-area:8/3}.setting-value{flex-wrap:wrap}
 
 .setting-value input[type="range"]{width:clamp(90px,23vw,220px);accent-color:var(--accent);padding:0}.setting-value select{max-width:190px}.setting-value input[type="range"]:disabled{opacity:.5}#liveScope,#liveMessage{margin:4px 0;text-align:right}
+
+.all-sources{color:var(--yellow)}#liveMessage{color:var(--yellow);min-height:1.5em}

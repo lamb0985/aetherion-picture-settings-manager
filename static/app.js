@@ -32,7 +32,7 @@ function menuRow(section,key,info,name=label(key)){
    const control=document.createElement(numeric?"input":"select");control.setAttribute("aria-label",name);
    if(numeric){control.type="range";control.min=limits[0];control.max=limits[1];control.step=1;control.oninput=()=>{value.textContent=control.value};control.onpointerdown=()=>{dragging=true};control.onkeydown=()=>{dragging=true}}
    else for(const choice of choices)option(control,choice,display(key,{value:choice},name));
-   control.value=info.value;control.disabled=writing;
+   control.value=info.value;control.disabled=writing||(live.settings.pq_apply.value===1&&!$("allSourcesAck").checked);
    const state=live;control.onchange=()=>{dragging=false;writeLive(key,name,Number(control.value),state,control)};
    control.onblur=()=>{dragging=false};control.onpointercancel=()=>{dragging=false};
    right.append(control);
@@ -63,7 +63,7 @@ function selectLiveContext(state){
  s.value=c.source;
  $("context").textContent="Live source: "+state.source_name+" · "+state.signal_name+" · "+profileLabel(c.pic_mode,{name:data.profiles[c.signal_dr_type]?.profiles?.[c.pic_mode]?.name});
  $("connection").textContent="Live · Connected";$("connection").className="status ok";
- $("liveScope").textContent=state.settings.pq_apply?.value===1?"All Sources — adjustments may affect other inputs":state.settings.pq_apply?.value===0?"Current Source":"Apply scope unknown — editing disabled";
+ $("liveScope").textContent=state.settings.pq_apply?.value===1?"All Sources — enable the acknowledgment to unlock editing on all inputs":state.settings.pq_apply?.value===0?"Current Source":"Apply scope unknown — editing disabled";
 }
 async function syncLive(){
  if(!isLive()||!registry.active||reading||writing||dragging||scanBusy)return;
@@ -72,25 +72,29 @@ async function syncLive(){
   const state=await api("/api/live/state",{device,keys:liveKeys()});
   if(generation!==epoch||!isLive()||device!==registry.active||menu!==tab||writing||dragging||scanBusy)return;
   const signature=JSON.stringify([menu,state]);
-  live=state;
-  if(signature!==liveSignature){liveSignature=signature;selectLiveContext(state);render()}
+  if(signature!==liveSignature||!live){live=state;liveSignature=signature;selectLiveContext(state);render()}
  }catch(e){
   if(generation!==epoch||!isLive()||menu!==tab)return;
   live=null;liveSignature="";$("connection").textContent="Live unavailable";$("connection").className="status error";$("liveScope").textContent=e.message;render();
  }finally{reading=false}
 }
 async function writeLive(key,name,value,state,control){
- if(writing||!liveReady()||state!==live){render();return}
+ if(writing||!liveReady()){ $("liveMessage").textContent="Live controls are temporarily unavailable";render();return }
+ if(state.device!==live.device||JSON.stringify(state.context)!==JSON.stringify(live.context)||state.settings[key]?.value!==live.settings[key]?.value||state.settings.pq_apply?.value!==live.settings.pq_apply?.value){$("liveMessage").textContent="Projector state changed; adjust again using the refreshed value";render();return}
  if(key!=="pic_mode"&&value===state.settings[key]?.value){render();return}
  if(state.settings.pq_apply?.value===1&&!$("allSourcesAck").checked){
    $("liveMessage").textContent="All Sources is active. Enable the All Sources acknowledgment before editing.";render();return
  }
  writing=true;epoch++;control.disabled=true;
+ $("liveMessage").textContent="Applying "+name+" = "+value+"…";
  try{
+  // Wait for an already-issued read to release the server ADB lock.
+  for(let i=0;reading&&i<200;i++)await new Promise(resolve=>setTimeout(resolve,25));
+  if(reading)throw Error("Live read still busy; try again");
   const result=await api("/api/live/setting",{device:state.device,context:state.context,key,value,previous:state.settings[key].value,scope:state.settings.pq_apply.value});
   $("liveMessage").textContent=name+": "+result.previous+" → "+result.setting.value+" verified";
  }catch(e){$("liveMessage").textContent=e.message}
- finally{writing=false;live=null;liveSignature="";await syncLive()}
+ finally{writing=false;live=null;liveSignature="";render();await syncLive()}
 }
 async function setLive(on){
  epoch++;live=null;liveSignature="";dragging=false;
@@ -206,5 +210,6 @@ setInterval(pollScan,2000);
 
 $("rawToggle").onchange=()=>document.body.classList.toggle("show-raw",$("rawToggle").checked);
 
+$("allSourcesAck").onchange=render;
 $("liveEdit").onchange=()=>setLive($("liveEdit").checked).catch(e=>$("liveMessage").textContent=e.message);
 setInterval(syncLive,1000);

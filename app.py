@@ -127,7 +127,7 @@ LIVE_READ_KEYS = set(LIVE_RANGES) | set(LIVE_ENUMS) | set(CONTEXT_KEYS) | {
     "active_contrast","high_brightness","hdr_enhancer","hdr_enhance",
     "temp_wb","color_space","dynamic_color_enhancer","dynamic_color_enhance",
     "dynamic_color","gradient_smooth","smooth_gradient","gradation_smooth",
-    "ai_sr","nr","mpeg_nr","iris_mode",
+    "ai_sr","nr","mpeg_nr","iris_mode","color","tint","motion_enhancement",
     "20p_wb_point","20p_wb_red","20p_wb_green","20p_wb_blue",
     "gamma_calibration_level","gamma_calibration_gain",
     "color_tuner_clr","color_tuner_hue","color_tuner_sat","color_tuner_bri",
@@ -189,7 +189,8 @@ def live_setting():
             if live_context(target)!=expected:
                 raise ValueError("Live source, signal or picture mode differs from selected profile")
         def read():
-            item=picture_call(target,1,{"cmd":"get_video_all","msg":{key:["value","range","state"],"pq_apply":["value"]}})["msg"]
+            fields={"pq_apply":["value"],key:["value","range","state"]}
+            item=picture_call(target,1,{"cmd":"get_video_all","msg":fields})["msg"]
             return item[key],item["pq_apply"]["value"]
         check()
         current,scope=read()
