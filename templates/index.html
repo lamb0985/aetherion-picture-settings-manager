@@ -14,9 +14,8 @@
 <section class="toolbar"><label>Import scanner JSON<input id="file" type="file" accept=".json,application/json"></label><button id="import">Import</button><span id="message" role="status"></span></section>
 <section id="stats" class="stats"></section>
 <section class="toolbar"><label>Signal format<select id="signal"></select></label><label>Picture profile<select id="profile"></select></label><label>Filter settings<input id="filter" placeholder="Setting name"></label></section>
-<nav id="tabs" aria-label="Setting categories"></nav>
-<p class="notice">Stored snapshot. Scanning temporarily switches signal, picture mode and calibration selectors. Calibration value editing is not enabled.</p>
-<section id="rows"></section>
+<p class="notice">Stored picture settings · read-only. Categories follow the discovery catalog; exact native menu hierarchy is not yet verified.</p>
+<div class="picture-layout"><nav id="tabs" aria-label="Picture settings categories"></nav><div class="picture-content"><label class="diagnostic-toggle"><input id="rawToggle" type="checkbox"> Show native parameters and raw values</label><section id="rows"></section></div></div>
 </main>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body></html>

@@ -64,6 +64,10 @@ For an existing deployment with valid ADB_HOST and ADB_PORT, the application ini
 
 On the projector, enable developer options and wireless debugging where supported. If pairing is required, use the pairing address and code displayed by the projector with `adb pair HOST:PAIRING_PORT`. Connect using `adb connect HOST:ADB_PORT` and verify with `adb devices -l`. ADB credentials belong to the client that created them; the container will require its own authorized identity or an explicitly provisioned identity. The container stores its ADB identity under `/config/.android` via `HOME=/config`. After deploying the container, run `docker compose exec aetherion-picture-settings-manager adb pair HOST:PAIRING_PORT` if wireless debugging requires pairing. Then use Connect / refresh in the WebUI. A pairing code may be requested interactively. Do not expose the ADB server port.
 
+## Picture settings interface
+
+The picture browser uses menu-style navigation derived from the imported discovery categories, with dedicated 2-point and 20-point white balance, gamma calibration and color management views. The RGB offset controls are listed before gains. Values are read-only snapshots; bars display reported numeric ranges and do not change the projector. The optional native diagnostics view exposes raw keys, values, ranges and states. Exact native APK hierarchy and conditional menu ordering remain unverified.
+
 ## Safety and limitations
 
 - Keep ADB and the WebUI on a trusted private network. Do not expose either directly to the internet.
