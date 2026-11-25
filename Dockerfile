@@ -10,9 +10,10 @@ RUN printf 'deb http://deb.debian.org/debian trixie-backports main contrib\n' > 
     && mkdir -p /config /backups /logs
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py schema.py device_manager.py scanner.py remote.py ./
+COPY app.py schema.py device_manager.py scanner.py remote.py bulk.py ./
 COPY templates/ templates/
 COPY static/ static/
 ENV TZ=America/New_York HOME=/config CONFIG_DIR=/config PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN python -c "from app import app; assert app.test_client().get('/health').status_code == 200"
 EXPOSE 5055
 CMD ["gunicorn", "--bind", "0.0.0.0:5055", "--workers", "1", "--threads", "4", "app:app"]
