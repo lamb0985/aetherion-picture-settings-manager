@@ -1,0 +1,11 @@
+.env
+config/
+backups/
+logs/
+*.adbkey
+adbkey*
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+picture-settings-*.json
