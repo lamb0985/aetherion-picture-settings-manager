@@ -294,11 +294,16 @@ def remote_key():
     try:
         p=request.get_json()
         key=p.get("key")
-        if key not in ("DPAD_UP","DPAD_DOWN","DPAD_LEFT","DPAD_RIGHT","DPAD_CENTER","BACK","HOME","MENU","SETTINGS","VOLUME_UP","VOLUME_DOWN","VOLUME_MUTE"):
+        if key not in ("DPAD_UP","DPAD_DOWN","DPAD_LEFT","DPAD_RIGHT","DPAD_CENTER","BACK","HOME","MENU","SETTINGS","PICTURE_SETTINGS","VOLUME_UP","VOLUME_DOWN","VOLUME_MUTE"):
             raise ValueError("Unsupported remote key")
         if not remote.running() or remote.target!=endpoint() or p.get("token")!=REMOTE_TOKEN:
             raise ValueError("Start a remote session first")
-        adb("-s",remote.target,"shell","input","keyevent","KEYCODE_"+key)
+        if key == "PICTURE_SETTINGS":
+            result = adb("-s",remote.target,"shell","am","start","-n","com.vt.customsettings/com.vt.customsettings.picture.ui.PictureActivity")
+            if "Error" in result or "Exception" in result:
+                raise ValueError(result.strip())
+        else:
+            adb("-s",remote.target,"shell","input","keyevent","1578" if key == "MENU" else "KEYCODE_"+key)
         remote.touch()
         return jsonify(status="ok")
     except Exception as exc:
