@@ -190,7 +190,7 @@ function render(){ $("rows").replaceChildren();const p=isLive()?(liveReady()?{se
  else if(Object.hasOwn(indexedTabs,tab))indexedView(p,tab);
  else if(tab==="diagnostics"){const s=group("Raw Native Parameters");for(const [k,v] of Object.entries(p.settings))menuRow(s,k,v,k);mount(s);for(const [id,section] of Object.entries(p.indexed||{})){for(const [level,entry] of Object.entries(section.values||{})){const g=group(id+" · "+calibrationLabel(id,level,entry));for(const [k,v] of Object.entries(entry.settings||{}))menuRow(g,k,v,k);mount(g)}}}
 }
-function tabs(){const items=[["picture","Picture",0],["luminance","Laser Luminance",1],["color","Color",1],["clarity","Clarity",1],["calibration","Calibration Settings",1],["color_management","Color Tuner",2],["white_balance","White Balance",2],["wb2","2 Point",3],["white_balance_20_point","20 Point",3],["gamma_calibration","Gamma Calibration",2],["laser","Laser Settings",0],["iris","IRIS",1],["diagnostics","Raw Diagnostics",0]];$("tabs").replaceChildren();for(const [id,title,depth] of items){const b=document.createElement("button");b.textContent=title;b.style.paddingLeft=(10+depth*13)+"px";b.classList.toggle("active",tab===id);b.setAttribute("aria-pressed",String(tab===id));b.onclick=()=>navigate(id);$("tabs").append(b)}}
+function tabs(){const items=[["picture","Picture",0],["laser","Laser Settings",0],["diagnostics","Raw Diagnostics",0]];$("tabs").replaceChildren();for(const [id,title,depth] of items){const b=document.createElement("button");b.textContent=title;b.style.paddingLeft=(10+depth*13)+"px";let root=tab;while(parentMenu[root])root=parentMenu[root];b.classList.toggle("active",root===id);b.setAttribute("aria-pressed",String(root===id));b.onclick=()=>navigate(id);$("tabs").append(b)}}
 async function load(){
  const r=await fetch("/api/catalog"+($("dbSource").value!==""?"?source="+encodeURIComponent($("dbSource").value):""));if(!r.ok)throw Error("Catalog load failed");data=await r.json();
  $("signal").replaceChildren();$("stats").replaceChildren();
@@ -259,3 +259,18 @@ for(const [button,dialog] of [["openScan","scanDialog"],["openSource","sourceDia
 }
 for(const button of document.querySelectorAll("[data-close-dialog]"))button.onclick=()=>$(button.dataset.closeDialog).close();
 for(const dialog of document.querySelectorAll(".utility-dialog"))dialog.addEventListener("click",e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
+
+// Keep the menu viewport aligned to the mirror itself, not the remote toolbar.
+function alignNativeMenu(){
+ const rows=$("rows"),screen=$("remoteScreen"),panel=$("remotePanel");
+ const rect=screen.getBoundingClientRect(),grid=rows.parentElement.getBoundingClientRect();
+ const aligned=panel.open&&rect.height>0&&window.innerWidth>1000;
+ rows.classList.toggle("mirror-aligned",aligned);
+ if(aligned){rows.style.setProperty("--mirror-offset",Math.max(0,rect.top-grid.top)+"px");rows.style.setProperty("--mirror-height",rect.height+"px")}
+}
+const mirrorLayoutObserver=new ResizeObserver(alignNativeMenu);
+mirrorLayoutObserver.observe($("remoteScreen"));
+mirrorLayoutObserver.observe($("remotePanel"));
+$("remotePanel").addEventListener("toggle",alignNativeMenu);
+window.addEventListener("resize",alignNativeMenu);
+alignNativeMenu();

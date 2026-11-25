@@ -88,3 +88,29 @@ main{padding:12px 16px}
 .utility-dialog .metric{padding:10px}
 .utility-dialog .metric strong{font-size:20px;overflow-wrap:anywhere}
 @media(max-width:700px){header>a{flex-basis:220px}.header-device{order:3;flex-basis:100%}.picture-layout{grid-template-columns:1fr}.settings-sidebar .toolbar{flex-direction:row;flex-wrap:wrap}.settings-sidebar .toolbar label{flex:1 1 140px;width:auto}.picture-content .remote-layout{grid-template-columns:1fr}}
+
+/* One native menu beside the live mirror; match the actual display bounds. */
+.unified-workspace{grid-template-columns:minmax(150px,190px) minmax(0,1fr);align-items:start}
+.unified-workspace .settings-sidebar nav{display:flex;flex-direction:column}
+.unified-workspace .settings-sidebar nav button:last-child{margin-top:0}
+.unified-workspace .live-controls{background:#21222c;border:1px solid var(--line);border-radius:8px;padding:8px;overflow-wrap:anywhere}
+.unified-workspace .live-controls label{min-width:0;justify-content:flex-start;align-items:flex-start;line-height:1.4;margin:4px 0}
+.unified-workspace .live-controls input{flex:none;margin:2px 3px 0 0}
+.unified-workspace #liveScope,.unified-workspace #liveMessage{text-align:left;font-size:11px}
+.unified-workspace #liveMessage:empty{display:none}
+.settings-mirror-grid{display:grid;grid-template-columns:minmax(230px,340px) minmax(0,1fr);gap:10px;align-items:start}
+.unified-workspace .picture-content #rows{width:100%;max-width:none;min-width:0;margin:0;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
+.unified-workspace #rows>.group{margin:0 0 8px}
+.unified-workspace #rows>.group:last-child{margin-bottom:0}
+.unified-workspace .native-menu.group{padding:9px;border-radius:14px;min-height:100%}
+.unified-workspace .native-menu.group h2{padding:8px 4px 12px}
+.unified-workspace .native-menu .setting-row,.unified-workspace .native-menu .native-link,.unified-workspace .native-menu .native-radio{padding:9px 11px;min-height:45px;margin-bottom:6px}
+.unified-workspace .native-menu .native-slider-tile .native-current{top:9px;right:11px}
+.unified-workspace .picture-content .remote-panel{margin:0}
+.unified-workspace .picture-content .remote-layout{grid-template-columns:minmax(0,1fr) minmax(115px,145px);align-items:start}
+.unified-workspace .remote-keys button{font-size:11px;padding:5px 3px}
+.unified-workspace .remote-panel .toolbar>label{min-width:65px}
+.unified-workspace .remote-panel .toolbar>label select{width:100%;min-width:0}
+@media(min-width:1001px){.unified-workspace #rows.mirror-aligned{margin-top:var(--mirror-offset,0px);height:var(--mirror-height,auto);min-height:0}}
+@media(max-width:1000px){.unified-workspace{grid-template-columns:1fr}.unified-workspace .settings-sidebar{display:grid;grid-template-columns:1fr 1fr 1fr}.unified-workspace .settings-sidebar .toolbar{flex-direction:column}.settings-mirror-grid{grid-template-columns:minmax(210px,280px) minmax(0,1fr)}}
+@media(max-width:700px){.unified-workspace .settings-sidebar{display:flex}.settings-mirror-grid{grid-template-columns:1fr}.unified-workspace .remote-panel{grid-row:1}.unified-workspace .picture-content .remote-layout{grid-template-columns:1fr}}
