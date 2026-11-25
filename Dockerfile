@@ -1,6 +1,11 @@
 FROM python:3.12-slim-trixie
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends adb tzdata scrcpy xvfb x11vnc novnc \
+RUN printf 'deb http://deb.debian.org/debian trixie-backports main contrib\n' > /etc/apt/sources.list.d/scrcpy-backports.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends adb tzdata xvfb x11vnc novnc \
+    && apt-get install -y --no-install-recommends -t trixie-backports scrcpy \
+    && scrcpy --version \
+    && test -f /usr/share/novnc/core/rfb.js \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /config /backups /logs
 COPY requirements.txt .
