@@ -68,6 +68,10 @@ On the projector, enable developer options and wireless debugging where supporte
 
 The picture browser uses menu-style navigation derived from the imported discovery categories, with dedicated 2-point and 20-point white balance, gamma calibration and color management views. The RGB offset controls are listed before gains. Values are read-only snapshots; bars display reported numeric ranges and do not change the projector. The optional native diagnostics view exposes raw keys, values, ranges and states. Exact native APK hierarchy and conditional menu ordering remain unverified.
 
+## Remote control (experimental)
+
+Open **Remote Control · scrcpy** and start mirroring the selected saved ADB device. This implementation uses scrcpy in a private Xvfb display and noVNC over a same-origin WebSocket, not Tango ADB. No extra exposed ports or containers are required. Choose maximum video dimension, bitrate and frame rate; mouse and keyboard control the mirrored display, and the directional buttons send Android key events. Screenshots are saved in /config/screenshots. Audio is disabled. Starting a scan or switching devices stops the mirror. The mirror is experimental: native overlays and protected HDMI content may not be capturable. Keep the WebUI on a trusted LAN; it has no login. Reverse proxies must support WebSocket upgrades. The scrcpy log is /logs/scrcpy.log. Hardware compatibility remains unverified.
+
 ## Safety and limitations
 
 - Keep ADB and the WebUI on a trusted private network. Do not expose either directly to the internet.

@@ -8,7 +8,12 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask_sock import Sock
+from remote import remote
+import socket
+import secrets
+from datetime import datetime, timezone
 from werkzeug.exceptions import BadRequest
 from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES
 import device_manager as devices
@@ -21,6 +26,8 @@ app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 CONFIG = Path(os.getenv("CONFIG_DIR", "/config"))
 CATALOG = CONFIG / "catalog.json"
 ADB_LOCK = threading.Lock()
+sock = Sock(app)
+REMOTE_TOKEN = None
 
 def read_catalog():
     d = devices.active_device(CONFIG)
@@ -89,7 +96,10 @@ def endpoint():
     return f"[{host}]:{port}" if host.version == 6 else f"{host}:{port}"
 
 def adb(*args):
-    return subprocess.check_output(["adb", *args], text=True, stderr=subprocess.STDOUT, timeout=15)
+    try:
+        return subprocess.check_output(["adb", *args], text=True, stderr=subprocess.STDOUT, timeout=15)
+    except subprocess.CalledProcessError as exc:
+        raise ValueError((exc.output or str(exc)).strip()) from exc
 
 def decode_parcel(raw):
     words = []
@@ -188,6 +198,7 @@ def change_devices():
     if not ADB_LOCK.acquire(blocking=False):
         return jsonify(error="ADB operation in progress"),409
     try:
+        remote.stop()
         payload=request.get_json()
         return jsonify(devices.select_device(CONFIG,payload["select"]) if "select" in payload else devices.save_device(CONFIG,payload))
     except (ValueError,KeyError,TypeError,AttributeError,sqlite3.IntegrityError) as exc:
@@ -209,6 +220,7 @@ def start_scan():
     if not ADB_LOCK.acquire(blocking=False):
         return jsonify(error="ADB operation in progress"),409
     try:
+        remote.stop()
         d=devices.active_device(CONFIG)
         if not d: raise ValueError("Save a device first")
         target=devices.address(d["host"],d["port"])
@@ -236,3 +248,129 @@ def start_scan():
         ADB_LOCK.release()
         return jsonify(error=str(exc)),400
     return jsonify(dict(SCAN)),202
+
+@app.get("/remote-client/<path:filename>")
+def remote_client(filename):
+    return send_from_directory("/usr/share/novnc",filename)
+
+@app.post("/api/remote/start")
+def remote_start():
+    global REMOTE_TOKEN
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        p=request.get_json()
+        size,rate,fps=(p.get("size",720),p.get("bitrate",4),p.get("fps",30))
+        if any(type(v) is not int for v in (size,rate,fps)) or size not in (480,720,1080,1280,1920) or rate not in (2,4,8,12) or fps not in (15,30,60):
+            raise ValueError("Unsupported stream options")
+        target=endpoint()
+        adb("connect",target)
+        if adb("-s",target,"get-state").strip()!="device":
+            raise ValueError("ADB not connected")
+        remote.start(target,size,rate,fps)
+        REMOTE_TOKEN=secrets.token_urlsafe(32)
+        return jsonify(token=REMOTE_TOKEN)
+    except Exception as exc:
+        return jsonify(error=str(exc)),503
+    finally:
+        ADB_LOCK.release()
+
+@app.post("/api/remote/stop")
+def remote_stop():
+    global REMOTE_TOKEN
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        remote.stop()
+        REMOTE_TOKEN=None
+        return jsonify(status="stopped")
+    finally:
+        ADB_LOCK.release()
+
+@app.post("/api/remote/key")
+def remote_key():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        p=request.get_json()
+        key=p.get("key")
+        if key not in ("DPAD_UP","DPAD_DOWN","DPAD_LEFT","DPAD_RIGHT","DPAD_CENTER","BACK","HOME","MENU","SETTINGS","VOLUME_UP","VOLUME_DOWN","VOLUME_MUTE"):
+            raise ValueError("Unsupported remote key")
+        if not remote.running() or remote.target!=endpoint() or p.get("token")!=REMOTE_TOKEN:
+            raise ValueError("Start a remote session first")
+        adb("-s",remote.target,"shell","input","keyevent","KEYCODE_"+key)
+        remote.touch()
+        return jsonify(status="ok")
+    except Exception as exc:
+        return jsonify(error=str(exc)),400
+    finally:
+        ADB_LOCK.release()
+
+@app.post("/api/remote/screenshot")
+def remote_screenshot():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        if not remote.running() or remote.target!=endpoint() or request.get_json().get("token")!=REMOTE_TOKEN:
+            raise ValueError("Start a remote session first")
+        data=subprocess.check_output(["adb","-s",remote.target,"exec-out","screencap","-p"],timeout=15)
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("Device did not return PNG")
+        folder=CONFIG/"screenshots"
+        folder.mkdir(parents=True,exist_ok=True)
+        name=datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")+".png"
+        (folder/name).write_bytes(data)
+        return jsonify(file=name)
+    except Exception as exc:
+        return jsonify(error=str(exc)),400
+    finally:
+        ADB_LOCK.release()
+
+@sock.route("/remote-stream")
+def remote_stream(ws):
+    origin=request.headers.get("Origin","")
+    from urllib.parse import urlsplit
+    if urlsplit(origin).netloc!=request.host or not REMOTE_TOKEN or request.args.get("token")!=REMOTE_TOKEN:
+        ws.close()
+        return
+    with remote.lock:
+        if not remote.running():
+            ws.close()
+            return
+        target=remote.target
+        token=REMOTE_TOKEN
+    try:
+        with socket.create_connection(("127.0.0.1",5903),timeout=3) as conn:
+            conn.settimeout(.1)
+            done=threading.Event()
+            def upstream():
+                try:
+                    while not done.is_set() and remote.running() and remote.target==target and REMOTE_TOKEN==token:
+                        chunk=ws.receive(timeout=.5)
+                        if chunk is None: continue
+                        if isinstance(chunk,bytes): conn.sendall(chunk)
+                        remote.touch()
+                except Exception: pass
+                finally: done.set()
+            t=threading.Thread(target=upstream,daemon=True)
+            t.start()
+            try:
+                while not done.is_set() and remote.running() and remote.target==target and REMOTE_TOKEN==token:
+                    try: data=conn.recv(65536)
+                    except socket.timeout: continue
+                    if not data: break
+                    ws.send(data)
+                    remote.touch()
+            finally:
+                done.set()
+                ws.close()
+                t.join(timeout=2)
+    except OSError:
+        pass
+
+def remote_reaper():
+    while True:
+        time.sleep(10)
+        remote.reap()
+
+threading.Thread(target=remote_reaper,daemon=True).start()
