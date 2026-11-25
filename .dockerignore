@@ -1,0 +1,12 @@
+.git
+.github
+__pycache__
+**/__pycache__
+.venv
+.env
+config
+backups
+logs
+adbkey*
+picture-settings-*.json
+tests
