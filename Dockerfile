@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends adb tzdata \
     && mkdir -p /config /backups /logs
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py schema.py ./
+COPY app.py schema.py device_manager.py scanner.py ./
 COPY templates/ templates/
 COPY static/ static/
 ENV TZ=America/New_York HOME=/config CONFIG_DIR=/config PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1

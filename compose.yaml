@@ -7,8 +7,6 @@ services:
       - "5055:5055"
     environment:
       TZ: America/New_York
-      ADB_HOST: YOUR_AETHERION_IP
-      ADB_PORT: "YOUR_ADB_PORT"
     volumes:
       - /path/to/config:/config
       - /path/to/backups:/backups

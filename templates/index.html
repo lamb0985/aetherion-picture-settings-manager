@@ -6,14 +6,16 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<header><a href="https://github.com/lamb0985/aetherion-picture-settings-manager" target="_blank" rel="noopener"><h1>AETHERION <span>PICTURE SETTINGS MANAGER</span></h1></a><div class="status" id="connection">Not checked</div></header>
+<header><a href="https://github.com/lamb0985/aetherion-picture-settings-manager" target="_blank" rel="noopener"><img class="brand" src="{{ url_for('static', filename='banner.svg') }}" alt="Aetherion Picture Settings Manager"></a><div class="status" id="connection">Not checked</div></header>
 <main>
+<section class="toolbar"><label>Saved device<select id="device"></select></label><label>Device name<input id="deviceName" maxlength="100"></label><label>IP address<input id="deviceHost"></label><label>ADB port<input id="devicePort" type="number" min="1" max="65535"></label><button id="newDevice">New device</button><button id="saveDevice">Save &amp; select</button><span id="deviceMessage" role="status"></span></section>
+<section class="toolbar"><button id="scan">Scan Current Picture Modes</button><button id="cancelScan" disabled>Cancel scan</button><progress id="scanProgress" value="0" max="53"></progress><span id="scanMessage" role="status"></span><label>Database source<select id="dbSource"></select></label></section>
 <section class="toolbar"><div><strong>Projector connection</strong><p id="context">No live status requested.</p></div><button id="connect">Connect / refresh</button></section>
 <section class="toolbar"><label>Import scanner JSON<input id="file" type="file" accept=".json,application/json"></label><button id="import">Import</button><span id="message" role="status"></span></section>
 <section id="stats" class="stats"></section>
 <section class="toolbar"><label>Signal format<select id="signal"></select></label><label>Picture profile<select id="profile"></select></label><label>Filter settings<input id="filter" placeholder="Setting name"></label></section>
 <nav id="tabs" aria-label="Setting categories"></nav>
-<p class="notice">Read-only imported snapshot. Live status is separate from the snapshot. Raw option states are not interpreted as write permissions. No picture setters are enabled.</p>
+<p class="notice">Stored snapshot. Scanning temporarily switches signal, picture mode and calibration selectors. Calibration value editing is not enabled.</p>
 <section id="rows"></section>
 </main>
 <script src="{{ url_for('static', filename='app.js') }}"></script>

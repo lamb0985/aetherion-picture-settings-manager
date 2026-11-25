@@ -11,6 +11,10 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import BadRequest
 from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES
+import device_manager as devices
+import scanner
+import sqlite3
+import time
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
@@ -19,6 +23,9 @@ CATALOG = CONFIG / "catalog.json"
 ADB_LOCK = threading.Lock()
 
 def read_catalog():
+    d = devices.active_device(CONFIG)
+    if d:
+        return devices.snapshot(CONFIG, d["id"])
     if not CATALOG.exists():
         return {"profiles": {}}
     return json.loads(CATALOG.read_text())
@@ -72,6 +79,9 @@ def summarize(data):
     }
 
 def endpoint():
+    d = devices.active_device(CONFIG)
+    if d:
+        return devices.address(d["host"], d["port"])
     host = ipaddress.ip_address(os.environ.get("ADB_HOST", ""))
     port = int(os.environ.get("ADB_PORT", ""))
     if not 1 <= port <= 65535:
@@ -108,11 +118,13 @@ def index():
 
 @app.get("/health")
 def health():
-    return jsonify(status="ok", catalog=CATALOG.exists(), mode="read-only")
+    return jsonify(status="ok", catalog=CATALOG.exists(), mode="scan")
 
 @app.get("/api/catalog")
 def catalog():
-    data = read_catalog()
+    d = devices.active_device(CONFIG)
+    source = request.args.get("source", type=int)
+    data = devices.snapshot(CONFIG, d["id"], source) if d else read_catalog()
     # The public-facing API does not return local filesystem paths or ADB addresses.
     return jsonify(profiles=data["profiles"], parameter_candidates=data.get("parameter_candidates", {}),
                    menu_enumerations=data.get("menu_enumerations", {}), summary=summarize(data))
@@ -125,6 +137,10 @@ def upload():
         data = validate(request.get_json())
     except (ValueError, BadRequest, TypeError, AttributeError, KeyError) as exc:
         return jsonify(error=str(exc)), 400
+    d = devices.active_device(CONFIG)
+    if d:
+        devices.store(CONFIG, d["id"], data)
+        return jsonify(status="imported", summary=summarize(data))
     CONFIG.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", dir=CONFIG, delete=False) as f:
         json.dump(data, f, indent=2)
@@ -151,3 +167,72 @@ def connect():
         return jsonify(error=str(exc)), 503
     finally:
         ADB_LOCK.release()
+
+SCAN = {"status":"idle","done":0,"total":sum(map(len,MODES.values()))}
+CANCEL = threading.Event()
+
+@app.before_request
+def guard_mutations():
+    if request.method == "POST" and (request.headers.get("Sec-Fetch-Site") == "cross-site" or not request.is_json):
+        return jsonify(error="Only same-site JSON requests allowed"),403
+
+@app.get("/api/devices")
+def list_devices():
+    result=devices.registry(CONFIG)
+    d=devices.active_device(CONFIG)
+    result["sources"]=devices.sources(CONFIG,d["id"]) if d else []
+    return jsonify(result)
+
+@app.post("/api/devices")
+def change_devices():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        payload=request.get_json()
+        return jsonify(devices.select_device(CONFIG,payload["select"]) if "select" in payload else devices.save_device(CONFIG,payload))
+    except (ValueError,KeyError,TypeError,AttributeError,sqlite3.IntegrityError) as exc:
+        return jsonify(error=str(exc)),400
+    finally:
+        ADB_LOCK.release()
+
+@app.get("/api/scan")
+def scan_status():
+    return jsonify(dict(SCAN))
+
+@app.post("/api/scan/cancel")
+def cancel_scan():
+    CANCEL.set()
+    return jsonify(status="cancellation requested")
+
+@app.post("/api/scan")
+def start_scan():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        d=devices.active_device(CONFIG)
+        if not d: raise ValueError("Save a device first")
+        target=devices.address(d["host"],d["port"])
+        seed=devices.snapshot(CONFIG,d["id"])
+        if not seed.get("profiles"):
+            raise ValueError("Import a discovery catalog first")
+        CANCEL.clear()
+        SCAN.update(status="running",done=0,error=None,started=time.time(),device=d["id"])
+        def worker():
+            try:
+                adb("connect",target)
+                if adb("-s",target,"get-state").strip()!="device":
+                    raise ValueError("ADB not connected")
+                data=scanner.scan(target,seed,adb,decode_parcel,lambda n,s,m: SCAN.update(done=n,signal=s,mode=m),CANCEL.is_set)
+                devices.store(CONFIG,d["id"],validate(data))
+                SCAN.update(status="complete",summary=summarize(data))
+            except InterruptedError as exc:
+                SCAN.update(status="cancelled",error=str(exc))
+            except Exception as exc:
+                SCAN.update(status="failed",error=str(exc))
+            finally:
+                ADB_LOCK.release()
+        threading.Thread(target=worker,daemon=True).start()
+    except Exception as exc:
+        ADB_LOCK.release()
+        return jsonify(error=str(exc)),400
+    return jsonify(dict(SCAN)),202

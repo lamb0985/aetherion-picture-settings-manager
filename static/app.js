@@ -48,7 +48,7 @@ function tabs(){
  }
 }
 async function load(){
- const r=await fetch("/api/catalog");if(!r.ok)throw Error("Catalog load failed");data=await r.json();
+ const r=await fetch("/api/catalog"+($("dbSource").value!==""?"?source="+encodeURIComponent($("dbSource").value):""));if(!r.ok)throw Error("Catalog load failed");data=await r.json();
  $("signal").replaceChildren();$("stats").replaceChildren();
  for(const [id,g] of Object.entries(data.profiles||{}))option($("signal"),id,(g.format||"Signal")+" ["+id+"]");
  metric("Snapshot source",data.summary.source);metric("Profiles",data.summary.profiles);metric("General records",data.summary.general);metric("Indexed records",data.summary.indexed);
@@ -75,4 +75,20 @@ $("connect").onclick=async()=>{
   $("context").textContent="Live source "+c.source+" · Signal "+c.signal_dr_type+" · Mode "+c.pic_mode+(data.summary.source!=null&&data.summary.source!==c.source?" — differs from imported snapshot":"");
  }catch(e){$("connection").textContent="Connection unavailable";$("connection").className="status error";$("context").textContent=e.message}finally{b.disabled=false}
 };
-load().catch(e=>{$("message").textContent=e.message});
+
+
+let registry={devices:[],active:null}, editing=null;
+async function api(path,body){const r=await fetch(path,body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.error||"Request failed");return v}
+function fillDevice(d){editing=d?.id||null;$("deviceName").value=d?.name||"";$("deviceHost").value=d?.host||"";$("devicePort").value=d?.port||""}
+async function refreshDevices(){registry=await api("/api/devices");$("device").replaceChildren();option($("device"),"","Select device");for(const d of registry.devices)option($("device"),d.id,d.name+" · "+d.host+":"+d.port);$("device").value=registry.active||"";fillDevice(registry.devices.find(d=>d.id===registry.active));$("dbSource").replaceChildren();option($("dbSource"),"","Latest snapshot");for(const s of registry.sources)option($("dbSource"),s.source,"Source "+s.source);await load()}
+function clearConnection(){$("connection").textContent="Not checked";$("connection").className="status";$("context").textContent="No live status requested."}
+$("newDevice").onclick=()=>fillDevice(null);
+$("saveDevice").onclick=async()=>{try{await api("/api/devices",{id:editing,name:$("deviceName").value,host:$("deviceHost").value,port:Number($("devicePort").value)});clearConnection();await refreshDevices();$("deviceMessage").textContent="Saved"}catch(e){$("deviceMessage").textContent=e.message}};
+$("device").onchange=async()=>{try{await api("/api/devices",{select:$("device").value});clearConnection();await refreshDevices()}catch(e){$("deviceMessage").textContent=e.message}};
+$("dbSource").onchange=()=>load().catch(e=>$("message").textContent=e.message);
+$("scan").onclick=async()=>{if(!confirm("Scan all supported profiles on the current source? Picture modes and calibration selectors will temporarily change. Do not change inputs or settings during the scan."))return;try{await api("/api/scan",{});await pollScan()}catch(e){$("scanMessage").textContent=e.message}};
+$("cancelScan").onclick=()=>api("/api/scan/cancel",{}).catch(e=>$("scanMessage").textContent=e.message);
+let lastScan="";
+async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";for(const id of ["scan","saveDevice","newDevice","device","connect","import"])$(id).disabled=busy;$("cancelScan").disabled=!busy;if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
+refreshDevices().then(pollScan).catch(e=>$("message").textContent=e.message);
+setInterval(pollScan,2000);
