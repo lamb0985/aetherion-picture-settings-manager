@@ -15,7 +15,7 @@ import socket
 import secrets
 from datetime import datetime, timezone
 from werkzeug.exceptions import BadRequest
-from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name, LIVE_RANGES, LIVE_ENUMS
+from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name, LIVE_RANGES, LIVE_ENUMS, SIGNALS
 import device_manager as devices
 import scanner
 import sqlite3
@@ -121,6 +121,51 @@ def picture_call(target, tx, payload):
     encoded=json.dumps(payload,separators=(",",":"))
     return decode_parcel(adb("-s",target,"shell",f"service call {SERVICE} {tx} s16 '{encoded}'"))
 
+# Read only known picture parameters; never change selectors during polling.
+LIVE_READ_KEYS = set(LIVE_RANGES) | set(LIVE_ENUMS) | set(CONTEXT_KEYS) | {
+    "high_dynamic","enhanced_black_level","dark_detail","gamma_adjust","gamma",
+    "active_contrast","high_brightness","hdr_enhancer","hdr_enhance",
+    "temp_wb","color_space","dynamic_color_enhancer","dynamic_color_enhance",
+    "dynamic_color","gradient_smooth","smooth_gradient","gradation_smooth",
+    "ai_sr","nr","mpeg_nr","iris_mode",
+    "20p_wb_point","20p_wb_red","20p_wb_green","20p_wb_blue",
+    "gamma_calibration_level","gamma_calibration_gain",
+    "color_tuner_clr","color_tuner_hue","color_tuner_sat","color_tuner_bri",
+}
+
+@app.post("/api/live/state")
+def live_state():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        p=request.get_json()
+        d=devices.active_device(CONFIG)
+        if not d or d["id"]!=p.get("device"):
+            raise ValueError("Selected device changed")
+        target=devices.address(d["host"],d["port"])
+        if adb("-s",target,"get-state").strip()!="device":
+            raise ValueError("Connect the projector first")
+        before=live_context(target)
+        requested=p.get("keys",[])
+        if not isinstance(requested,list) or any(not isinstance(k,str) or k not in LIVE_READ_KEYS for k in requested):
+            raise ValueError("Invalid live parameter list")
+        keys=sorted(set(requested)|set(CONTEXT_KEYS)|{"pq_apply"})
+        records={}
+        for offset in range(0,len(keys),16):
+            chunk=keys[offset:offset+16]
+            msg=picture_call(target,1,{"cmd":"get_video_all","msg":{k:["value","range","state"] for k in chunk}})["msg"]
+            records.update({k:v for k,v in msg.items() if k in chunk and isinstance(v,dict) and type(v.get("value")) is int})
+        after=live_context(target)
+        if before!=after or any(records.get(k,{}).get("value")!=after[k] for k in CONTEXT_KEYS):
+            return jsonify(error="Projector context changed during read; retrying"),409
+        return jsonify(device=d["id"],context=after,source_name=source_name(after["source"]),
+                       signal_name=SIGNALS.get(after["signal_dr_type"],"Signal "+str(after["signal_dr_type"])),
+                       modes=MODES.get(after["signal_dr_type"],()),settings=records)
+    except Exception as exc:
+        return jsonify(error=str(exc)),503
+    finally:
+        ADB_LOCK.release()
+
 @app.post("/api/live/setting")
 def live_setting():
     if not ADB_LOCK.acquire(blocking=False):
@@ -129,7 +174,7 @@ def live_setting():
     try:
         p=request.get_json()
         key=p["key"]
-        if key not in LIVE_RANGES and key not in LIVE_ENUMS:
+        if key not in LIVE_RANGES and key not in LIVE_ENUMS and key!="pic_mode":
             raise ValueError("Setting is not enabled for experimental live editing")
         d=devices.active_device(CONFIG)
         if not d or d["id"]!=p.get("device"):
@@ -158,7 +203,7 @@ def live_setting():
             bounds=current.get("range")
             if not isinstance(bounds,list) or len(bounds)!=3 or bounds[0]!=lo or bounds[2]!=hi or not lo<=value<=hi:
                 raise ValueError("Live range does not match expected bounds")
-        elif value not in LIVE_ENUMS[key]:
+        elif value not in (MODES.get(expected["signal_dr_type"],()) if key=="pic_mode" else LIVE_ENUMS[key]):
             raise ValueError("Unsupported enumeration value")
         check()
         attempted=True
@@ -166,6 +211,8 @@ def live_setting():
         if result.get("status")!=0 or result.get("result")!=0:
             raise ValueError("Native setter rejected change")
         time.sleep(.2)
+        if key=="pic_mode":
+            expected={**expected,"pic_mode":value}
         check()
         actual,scope=read()
         if actual["value"]!=value:

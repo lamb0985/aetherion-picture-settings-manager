@@ -15,8 +15,8 @@
 <section class="toolbar"><label>Import scanner JSON<input id="file" type="file" accept=".json,application/json"></label><button id="import">Import</button><span id="message" role="status"></span></section>
 <section id="stats" class="stats"></section>
 <section class="toolbar"><label>Signal format<select id="signal"></select></label><label>Picture profile<select id="profile"></select></label><label>Filter settings<input id="filter" placeholder="Setting name"></label></section>
-<p class="notice">Stored picture settings · optional experimental live tests. Stored snapshots are not modified. Native Aetherion Max menu order; available records depend on the selected source, signal and profile. Raw Diagnostics retains all scanned parameters.</p>
-<div class="picture-layout"><nav id="tabs" aria-label="Picture settings categories"></nav><div class="picture-content"><label class="diagnostic-toggle"><input id="rawToggle" type="checkbox"> Show native parameters and raw values</label><label class="diagnostic-toggle"><input id="liveEdit" type="checkbox"> Enable experimental live tests</label><p id="liveMessage" class="notice" role="status"></p><section id="rows"></section></div></div>
+<p class="notice">Live mode follows the projector automatically. Snapshot mode is read-only; live changes never overwrite saved snapshots.</p>
+<div class="picture-layout"><nav id="tabs" aria-label="Picture settings categories"></nav><div class="picture-content"><label class="diagnostic-toggle"><input id="rawToggle" type="checkbox"> Show native parameters and raw values</label><label class="diagnostic-toggle"><input id="liveEdit" type="checkbox"> Live synchronization</label><label class="diagnostic-toggle"><input id="allSourcesAck" type="checkbox"> Allow edits when All Sources is active</label><p id="liveScope" class="notice" role="status">Stored snapshots — read-only</p><p id="liveMessage" class="notice" role="status"></p><section id="rows"></section></div></div>
 </main>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 <script type="module" src="{{ url_for('static', filename='remote.js') }}"></script>

@@ -14,25 +14,90 @@ function label(key){return names[key]||key.replace(/_/g," ").replace(/\b\w/g,s=>
 function display(key,info,name){if(key==="pic_mode"){return profileLabel(info.value,profiles()[String(info.value)]||{})}const pair=enumNames[key];if(pair){const e=data.menu_enumerations||{},labels=e[pair[0]],values=e[pair[1]];if(Array.isArray(labels)&&Array.isArray(values)){const i=values.findIndex(v=>String(v)===String(info.value));if(i>=0&&i<labels.length)return labels[i]}}return fallbackEnums[key]?.[info.value]??info.display_value??(["AI Contrast","Dynamic Color Enhancer","AI Super Resolution"].includes(name)?["Off","Low","Medium","High"][info.value]:undefined)??(switchLabels.has(name)&&[0,1].includes(info.value)?(info.value===1?"On":"Off"):info.value)??"—"}
 function group(title){const section=document.createElement("section");section.className="group";const h=document.createElement("h2");h.textContent=title;section.append(h);return section}
 function matches(key,name){const f=$("filter").value.toLowerCase();return (key+" "+name).toLowerCase().includes(f)}
-function menuRow(section,key,info,name=label(key)){if(!matches(key,name))return;const row=document.createElement("div");row.className="setting-row";const left=document.createElement("div");left.className="setting-name";left.textContent=name;const raw=document.createElement("small");raw.className="raw-detail";raw.textContent=key+" · value: "+String(info.value??"—")+" · range: "+(Array.isArray(info.range)?info.range.join(" / "):info.range??"—")+" · state: "+(info.state??"—");left.append(raw);row.append(left);const right=document.createElement("div");right.className="setting-value";const value=document.createElement("strong");value.textContent=tab==="diagnostics"?(info.value??"—"):display(key,info,name);const range=info.range;if(Array.isArray(range)&&range.length===3&&range.every(Number.isFinite)&&range[2]>range[0]&&Number.isFinite(info.value)&&info.value>=range[0]&&info.value<=range[2]){const meter=document.createElement("meter");meter.min=range[0];meter.max=range[2];meter.value=info.value;meter.setAttribute("aria-label",name+" stored value");right.append(meter)}right.append(value);if(tab!=="diagnostics"&&$("liveEdit").checked&&(Object.hasOwn(liveRanges,key)||Object.hasOwn(liveEnums,key))){const edit=document.createElement("button");edit.textContent="Live test";edit.onclick=()=>editLive(key,name,value,edit);right.append(edit)}row.append(right);section.append(row)}
 const liveRanges={"backlight":[0,10],"contrast":[0,100],"brightness":[-50,50],"saturation":[0,100],"hue":[-50,50],"sharpness":[0,50],"memc_dejudder":[0,10],"memc_deblur":[0,10],"2p_wb_gain_red":[-25,25],"2p_wb_gain_green":[-25,25],"2p_wb_gain_blue":[-25,25],"2p_wb_offset_red":[-25,25],"2p_wb_offset_green":[-25,25],"2p_wb_offset_blue":[-25,25]},liveEnums={"color_temp":[0,1,2,3],"memc":[0,1,2,3,4,5],"pq_apply":[0,1],"20p_wb":[0,1]};
-async function editLive(key,name,displayNode,button){
- button.disabled=true;
+let live=null,reading=false,writing=false,dragging=false,scanBusy=false,epoch=0,liveSignature="";
+const isLive=()=>$("liveEdit").checked;
+const liveReady=()=>isLive()&&live&&live.device===registry.active&&!scanBusy;
+function menuRow(section,key,info,name=label(key)){
+ if(!matches(key,name))return;
+ const row=document.createElement("div");row.className="setting-row";
+ const left=document.createElement("div");left.className="setting-name";left.textContent=name;
+ const raw=document.createElement("small");raw.className="raw-detail";raw.textContent=key+" · value: "+String(info.value??"—")+" · range: "+(Array.isArray(info.range)?info.range.join(" / "):info.range??"—")+" · state: "+(info.state??"—");left.append(raw);row.append(left);
+ const right=document.createElement("div");right.className="setting-value";
+ const value=document.createElement("strong");value.textContent=tab==="diagnostics"?(info.value??"—"):display(key,info,name);
+ const range=info.range,limits=liveRanges[key],choices=key==="pic_mode"?live?.modes:liveEnums[key];
+ const numeric=limits&&Array.isArray(range)&&range[0]===limits[0]&&range[2]===limits[1]&&Number.isInteger(info.value)&&info.value>=limits[0]&&info.value<=limits[1];
+ const editable=liveReady()&&tab!=="diagnostics"&&Number.isInteger(live.settings.pq_apply?.value)&&live.settings[key]===info;
+ if(editable&&(numeric||choices?.includes(info.value))){
+   const control=document.createElement(numeric?"input":"select");control.setAttribute("aria-label",name);
+   if(numeric){control.type="range";control.min=limits[0];control.max=limits[1];control.step=1;control.oninput=()=>{value.textContent=control.value};control.onpointerdown=()=>{dragging=true};control.onkeydown=()=>{dragging=true}}
+   else for(const choice of choices)option(control,choice,display(key,{value:choice},name));
+   control.value=info.value;control.disabled=writing;
+   const state=live;control.onchange=()=>{dragging=false;writeLive(key,name,Number(control.value),state,control)};
+   control.onblur=()=>{dragging=false};control.onpointercancel=()=>{dragging=false};
+   right.append(control);
+ }else if(Array.isArray(range)&&range.length===3&&range.every(Number.isFinite)&&range[2]>range[0]&&Number.isFinite(info.value)&&info.value>=range[0]&&info.value<=range[2]){
+   const meter=document.createElement("meter");meter.min=range[0];meter.max=range[2];meter.value=info.value;meter.setAttribute("aria-label",name+" value");right.append(meter)
+ }
+ right.append(value);row.append(right);section.append(row);
+}
+window.addEventListener("pointerup",()=>{dragging=false});
+window.addEventListener("keyup",()=>{dragging=false});
+function liveKeys(){
+ if(nativeGroups[tab])return [...new Set(nativeGroups[tab][1].flatMap(x=>x[1]).concat(tab==="clarity"?["memc_dejudder","memc_deblur"]:[]))];
+ if(tab==="wb2")return wbKeys;
+ if(tab==="iris")return ["iris_mode"];
+ if(tab==="white_balance_20_point")return ["20p_wb","20p_wb_point","20p_wb_red","20p_wb_green","20p_wb_blue"];
+ if(tab==="gamma_calibration")return ["gamma_calibration_level","gamma_calibration_gain"];
+ if(tab==="color_management")return ["color_tuner_clr","color_tuner_hue","color_tuner_sat","color_tuner_bri"];
+ if(tab==="diagnostics")return [...new Set(Object.values(nativeGroups).flatMap(g=>g[1].flatMap(x=>x[1])).concat(wbKeys,["iris_mode","20p_wb","memc_dejudder","memc_deblur"]))];
+ return [];
+}
+function selectLiveContext(state){
+ const c=state.context;
+ $("signal").replaceChildren();option($("signal"),c.signal_dr_type,state.signal_name+" ["+c.signal_dr_type+"]");
+ $("profile").replaceChildren();option($("profile"),c.pic_mode,profileLabel(c.pic_mode,{name:data.profiles[c.signal_dr_type]?.profiles?.[c.pic_mode]?.name})+" ["+c.pic_mode+"]");
+ $("signal").disabled=true;$("profile").disabled=true;$("dbSource").disabled=true;
+ const s=$("dbSource");for(const o of Array.from(s.options))if(o.dataset.liveOnly)o.remove();
+ if(!Array.from(s.options).some(o=>o.value===String(c.source))){option(s,c.source,state.source_name);s.lastChild.dataset.liveOnly="1"}
+ s.value=c.source;
+ $("context").textContent="Live source: "+state.source_name+" · "+state.signal_name+" · "+profileLabel(c.pic_mode,{name:data.profiles[c.signal_dr_type]?.profiles?.[c.pic_mode]?.name});
+ $("connection").textContent="Live · Connected";$("connection").className="status ok";
+ $("liveScope").textContent=state.settings.pq_apply?.value===1?"All Sources — adjustments may affect other inputs":state.settings.pq_apply?.value===0?"Current Source":"Apply scope unknown — editing disabled";
+}
+async function syncLive(){
+ if(!isLive()||!registry.active||reading||writing||dragging||scanBusy)return;
+ reading=true;const generation=epoch,device=registry.active,menu=tab;
  try{
-  if(data.summary.source==null||!registry.active)throw Error("Select a saved source and profile first");
-  const p={key,device:registry.active,context:{source:data.summary.source,signal_dr_type:Number($("signal").value),pic_mode:Number($("profile").value)}};
-  const read=await api("/api/live/setting",p);
-  const allowed=liveEnums[key]||liveRanges[key];
-  const hint=liveEnums[key]?allowed.join(", "):allowed.join(" to ");
-  const text=prompt(name+" — live value: "+read.setting.value+"\\nAllowed: "+hint+"\\nApply scope: "+(read.scope===1?"All Sources":"Current Source")+"\\nEnter new numeric value (Cancel to leave unchanged):",String(read.setting.value));
-  if(text===null)return;
-  if(!/^-?\\d+$/.test(text.trim()))throw Error("Enter an integer");
-  const value=Number(text);
-  if(!confirm("Apply "+name+" = "+value+" on the live projector?"+(read.scope===1?" All Sources is active; other inputs may be affected.":"")))return;
-  const result=await api("/api/live/setting",{...p,value,previous:read.setting.value,scope:read.scope});
-  displayNode.textContent=display(key,result.setting,name)+" (live)";
-  $("liveMessage").textContent=name+": "+result.previous+" → "+result.setting.value+" verified. Stored snapshot unchanged.";
- }catch(e){$("liveMessage").textContent=e.message}finally{button.disabled=false}
+  const state=await api("/api/live/state",{device,keys:liveKeys()});
+  if(generation!==epoch||!isLive()||device!==registry.active||menu!==tab||writing||dragging||scanBusy)return;
+  const signature=JSON.stringify([menu,state]);
+  live=state;
+  if(signature!==liveSignature){liveSignature=signature;selectLiveContext(state);render()}
+ }catch(e){
+  if(generation!==epoch||!isLive()||menu!==tab)return;
+  live=null;liveSignature="";$("connection").textContent="Live unavailable";$("connection").className="status error";$("liveScope").textContent=e.message;render();
+ }finally{reading=false}
+}
+async function writeLive(key,name,value,state,control){
+ if(writing||!liveReady()||state!==live){render();return}
+ if(key!=="pic_mode"&&value===state.settings[key]?.value){render();return}
+ if(state.settings.pq_apply?.value===1&&!$("allSourcesAck").checked){
+   $("liveMessage").textContent="All Sources is active. Enable the All Sources acknowledgment before editing.";render();return
+ }
+ writing=true;epoch++;control.disabled=true;
+ try{
+  const result=await api("/api/live/setting",{device:state.device,context:state.context,key,value,previous:state.settings[key].value,scope:state.settings.pq_apply.value});
+  $("liveMessage").textContent=name+": "+result.previous+" → "+result.setting.value+" verified";
+ }catch(e){$("liveMessage").textContent=e.message}
+ finally{writing=false;live=null;liveSignature="";await syncLive()}
+}
+async function setLive(on){
+ epoch++;live=null;liveSignature="";dragging=false;
+ $("liveEdit").checked=on;$("allSourcesAck").checked=false;
+ for(const id of ["signal","profile","dbSource"])$(id).disabled=on;
+ if(on){$("liveScope").textContent="Reading projector…";render();await syncLive()}
+ else{for(const o of Array.from($("dbSource").options))if(o.dataset.liveOnly)o.remove();$("dbSource").value="";$("liveScope").textContent="Stored snapshots — read-only";await load()}
 }
 function mount(section){if(section.children.length>1)$("rows").append(section)}
 // Native menu order follows the Aetherion Max recording. Aliases are read-only
@@ -68,18 +133,19 @@ function profileLabel(id,p){return Number($("signal").value)<=2&&modeLabels[Numb
 const fallbackEnums={iris_mode:{0:"Off",1:"Cinema 1",2:"Cinema 2",3:"Manual",4:"Dynamic"},pq_apply:{0:"Current Source",1:"All Sources"},color_temp:{0:"Warm1",1:"Warm2",2:"Standard",3:"Cool"},color_space:{0:"Native",1:"Auto",2:"BT.709",3:"DCI-P3",4:"BT.2020"},gamma_adjust:{0:"2.0",1:"2.2",2:"2.4",3:"BT1886",12:"HLG",13:"ST2084"},memc:{0:"Off",1:"Custom",2:"Film",3:"Clear",4:"Standard",5:"Smooth"}};
 const switchLabels=new Set(["Enhanced Black Level","Dark Detail","Brightness Enhancer","HDR Enhancer","Color Temperature Adaptation","20 Point"]);
 function resolve(p,keys){return keys.find(k=>Object.prototype.hasOwnProperty.call(p.settings,k))}
-function showSetting(s,p,name,keys){const k=resolve(p,keys);if(k){menuRow(s,k,p.settings[k],name)}else if(matches(keys.join(" "),name)){const r=document.createElement("div");r.className="setting-row";r.textContent=name;const c=document.createElement("small");c.textContent="Not in snapshot";r.append(c);s.append(r)}}
+function showSetting(s,p,name,keys){const k=resolve(p,keys);if(k){menuRow(s,k,p.settings[k],name)}else if(matches(keys.join(" "),name)){const r=document.createElement("div");r.className="setting-row";r.textContent=name;const c=document.createElement("small");c.textContent=isLive()?"Not returned by projector":"Not in snapshot";r.append(c);s.append(r)}}
 function navRow(s,name,id){if(!matches(id,name))return;const b=document.createElement("button");b.className="native-link";b.textContent=name+"  ›";b.onclick=()=>navigate(id);s.append(b)}
 function unavailableAction(s,name){if(!matches(name,name))return;const b=document.createElement("button");b.className="native-link";b.disabled=true;b.textContent=name+" (read-only)";s.append(b)}
-function navigate(id){tab=id;tabs();render()}
+function navigate(id){tab=id;tabs();if(isLive()){epoch++;live=null;liveSignature="";render();syncLive()}else render()}
 function calibrationLabel(tab,id,entry){if(entry.label&&tab!=="color_management")return entry.label;if(tab==="white_balance_20_point"||tab==="gamma_calibration")return (Number(id)+1)*5+"%";const e=data.menu_enumerations||{},v=e.picture_color_tuner_color_entries_values,l=e.picture_color_tuner_color_entries;if(Array.isArray(v)&&Array.isArray(l)){const i=v.findIndex(x=>String(x)===String(id));if(i>=0&&i<l.length)return l[i]}return ["Red","Green","Blue","Yellow","Cyan","Magenta","Flesh Tone"][Number(id)]||"Color "+id}
 function indexedView(p,id){const s=group(indexedTabs[id]),values=p.indexed?.[id]?.values||{},entries=Object.entries(values).sort((a,b)=>Number(a[0])-Number(b[0]));
  if(id==="white_balance_20_point")showSetting(s,p,"20 Point",["20p_wb"]);
  const keys=id==="white_balance_20_point"?["20p_wb_red","20p_wb_green","20p_wb_blue"]:id==="gamma_calibration"?["gamma_calibration_gain"]:["color_tuner_hue","color_tuner_sat","color_tuner_bri"];
- if(entries.length){const row=document.createElement("div");row.className="setting-row";const l=document.createElement("label");l.textContent=id==="color_management"?"Color":"Input Level";const select=document.createElement("select");for(const [k,e] of entries)option(select,k,calibrationLabel(id,k,e));select.value=Object.hasOwn(values,selectedLevels[id])?selectedLevels[id]:entries[0][0];selectedLevels[id]=select.value;select.onchange=()=>{selectedLevels[id]=select.value;render()};l.append(select);row.append(l);s.append(row);const entry=values[select.value];for(const k of keys)showSetting(s,{settings:entry.settings||{}},label(k),[k]);}
+ if(isLive()){const selector={white_balance_20_point:"20p_wb_point",gamma_calibration:"gamma_calibration_level",color_management:"color_tuner_clr"}[id];showSetting(s,p,id==="color_management"?"Color":"Input Level",[selector]);for(const k of keys)showSetting(s,p,label(k),[k]);const note=document.createElement("p");note.className="notice";note.textContent="Current native calibration index only. Change index using projector remote; indexed writes are not enabled.";s.append(note)}
+ else if(entries.length){const row=document.createElement("div");row.className="setting-row";const l=document.createElement("label");l.textContent=id==="color_management"?"Color":"Input Level";const select=document.createElement("select");for(const [k,e] of entries)option(select,k,calibrationLabel(id,k,e));select.value=Object.hasOwn(values,selectedLevels[id])?selectedLevels[id]:entries[0][0];selectedLevels[id]=select.value;select.onchange=()=>{selectedLevels[id]=select.value;render()};l.append(select);row.append(l);s.append(row);const entry=values[select.value];for(const k of keys)showSetting(s,{settings:entry.settings||{}},label(k),[k]);}
  else {const m=document.createElement("p");m.className="notice";m.textContent="No indexed records in this snapshot.";s.append(m)}
  unavailableAction(s,id==="color_management"?"Reset Color Tuner Settings":id==="gamma_calibration"?"Restore Gamma Calibration":"Reset White Balance");mount(s)}
-function render(){ $("rows").replaceChildren();const p=profiles()[$("profile").value];if(!p){$("rows").textContent="Select a device and import or scan a picture settings snapshot.";return}
+function render(){ $("rows").replaceChildren();const p=isLive()?(liveReady()?{settings:live.settings,indexed:{}}:null):profiles()[$("profile").value];if(!p){$("rows").textContent=isLive()?"Waiting for live projector values…":"Select a device and import or scan a picture settings snapshot.";return}
  if(tab==="picture"){const s=group("Picture");showSetting(s,p,"Picture Mode",["pic_mode"]);showSetting(s,p,"Apply Picture Settings",["pq_apply"]);for(const id of ["luminance","color","clarity"])navRow(s,nativeGroups[id][0],id);navRow(s,"Calibration Settings","calibration");unavailableAction(s,"Reset");mount(s)}
  else if(nativeGroups[tab]){const [title,items]=nativeGroups[tab],s=group(title);for(const [name,keys] of items)showSetting(s,p,name,keys);if(tab==="clarity"){const k=resolve(p,["memc","motion_enhancement"]);if(k&&Number(p.settings[k].value)===1){showSetting(s,p,"Judder Reduction",["memc_dejudder"]);showSetting(s,p,"Blur Reduction",["memc_deblur"])}}mount(s)}
  else if(tab==="laser"){const s=group("Laser Settings");for(const name of ["Projection Mode","Auto Keystone Correction","Manual Keystone Correction","Focus Adjustment","Eye Protection","3D","3D Left&Right Switch","3D to 2D"])unavailableAction(s,name+" — mapping pending");navRow(s,"IRIS","iris");unavailableAction(s,"Low Noise Mode — mapping pending");mount(s)}
@@ -96,7 +162,7 @@ async function load(){
  $("signal").replaceChildren();$("stats").replaceChildren();
  for(const [id,g] of Object.entries(data.profiles||{}))option($("signal"),id,(g.format||"Signal")+" ["+id+"]");
  metric("Snapshot source",data.summary.source_name??data.summary.source);metric("Profiles",data.summary.profiles);metric("General records",data.summary.general);metric("Indexed records",data.summary.indexed);
- chooseProfiles();
+ if(isLive()){liveSignature="";await syncLive()}else chooseProfiles();
 }
 $("signal").onchange=chooseProfiles;$("profile").onchange=()=>{selectedLevels={};tabs();render()};$("filter").oninput=render;
 $("import").onclick=async()=>{
@@ -117,6 +183,7 @@ $("connect").onclick=async()=>{
   $("connection").textContent="Connected";$("connection").className="status ok";
   const c=result.context;
   $("context").textContent="Live source: "+(result.source_name??("Source "+c.source))+" · Signal "+c.signal_dr_type+" · Mode "+c.pic_mode+(data.summary.source!=null&&data.summary.source!==c.source?" — differs from imported snapshot":"");
+  await setLive(true);
  }catch(e){$("connection").textContent="Connection unavailable";$("connection").className="status error";$("context").textContent=e.message}finally{b.disabled=false}
 };
 
@@ -125,7 +192,7 @@ let registry={devices:[],active:null}, editing=null;
 async function api(path,body){const r=await fetch(path,body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.error||"Request failed");return v}
 function fillDevice(d){editing=d?.id||null;$("deviceName").value=d?.name||"";$("deviceHost").value=d?.host||"";$("devicePort").value=d?.port||""}
 async function refreshDevices(){registry=await api("/api/devices");$("device").replaceChildren();option($("device"),"","Select device");for(const d of registry.devices)option($("device"),d.id,d.name+" · "+d.host+":"+d.port);$("device").value=registry.active||"";fillDevice(registry.devices.find(d=>d.id===registry.active));$("dbSource").replaceChildren();option($("dbSource"),"","Latest snapshot");for(const s of registry.sources)option($("dbSource"),s.source,s.name??("Source "+s.source));await load()}
-function clearConnection(){$("connection").textContent="Not checked";$("connection").className="status";$("context").textContent="No live status requested."}
+function clearConnection(){epoch++;live=null;liveSignature="";$("liveEdit").checked=false;for(const id of ["signal","profile","dbSource"])$(id).disabled=false;$("connection").textContent="Not checked";$("connection").className="status";$("context").textContent="No live status requested."}
 $("newDevice").onclick=()=>fillDevice(null);
 $("saveDevice").onclick=async()=>{try{await api("/api/devices",{id:editing,name:$("deviceName").value,host:$("deviceHost").value,port:Number($("devicePort").value)});clearConnection();await refreshDevices();$("deviceMessage").textContent="Saved"}catch(e){$("deviceMessage").textContent=e.message}};
 $("device").onchange=async()=>{try{await api("/api/devices",{select:$("device").value});clearConnection();await refreshDevices()}catch(e){$("deviceMessage").textContent=e.message}};
@@ -133,10 +200,11 @@ $("dbSource").onchange=()=>load().catch(e=>$("message").textContent=e.message);
 $("scan").onclick=async()=>{if(!confirm("Scan all supported profiles on the current source? Picture modes and calibration selectors will temporarily change. Do not change inputs or settings during the scan."))return;try{await api("/api/scan",{});await pollScan()}catch(e){$("scanMessage").textContent=e.message}};
 $("cancelScan").onclick=()=>api("/api/scan/cancel",{}).catch(e=>$("scanMessage").textContent=e.message);
 let lastScan="";
-async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";for(const id of ["scan","saveDevice","newDevice","device","connect","import"])$(id).disabled=busy;$("cancelScan").disabled=!busy;if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
-refreshDevices().then(pollScan).catch(e=>$("message").textContent=e.message);
+async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","import"])$(id).disabled=busy;$("cancelScan").disabled=!busy;if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
+refreshDevices().then(pollScan).then(()=>{if(registry.active)$("connect").click()}).catch(e=>$("message").textContent=e.message);
 setInterval(pollScan,2000);
 
 $("rawToggle").onchange=()=>document.body.classList.toggle("show-raw",$("rawToggle").checked);
 
-$("liveEdit").onchange=render;
+$("liveEdit").onchange=()=>setLive($("liveEdit").checked).catch(e=>$("liveMessage").textContent=e.message);
+setInterval(syncLive,1000);
