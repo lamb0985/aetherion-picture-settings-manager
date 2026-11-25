@@ -66,7 +66,7 @@ On the projector, enable developer options and wireless debugging where supporte
 
 ## Picture settings interface
 
-The picture browser uses menu-style navigation derived from the imported discovery categories, with dedicated 2-point and 20-point white balance, gamma calibration and color management views. The RGB offset controls are listed before gains. Values are read-only snapshots; bars display reported numeric ranges and do not change the projector. The optional native diagnostics view exposes raw keys, values, ranges and states. Exact native APK hierarchy and conditional menu ordering remain unverified.
+The picture browser follows the observed Aetherion Max native Picture menu: Picture Mode, Apply Picture Settings, Laser Luminance, Color, Clarity, Calibration Settings and Reset. Calibration Settings contains Color Tuner, White Balance (2 Point / 20 Point) and Gamma Calibration. Indexed selectors browse stored color and input-level records without sending ADB writes. The RGB offsets precede gains. Reset actions are disabled. SDR profile labels and some parameter aliases follow the agreed research assumptions and may need refinement; missing records are explicitly indicated. Raw Diagnostics retains all general and indexed records, including settings outside the native Picture menu. Values remain read-only snapshots, not live adjustments. Bars display reported numeric ranges; native availability and conditional visibility may differ by firmware, source and signal.
 
 ## Remote control (experimental)
 
