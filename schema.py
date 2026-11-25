@@ -2,6 +2,12 @@
 SERVICE = "vendor.vt.hs_av_service.IHisSystemApiAidl/default"
 CONTEXT_KEYS = ("source", "signal_dr_type", "pic_mode")
 
+# Observed Aetherion Max input IDs; other firmware may use different mappings.
+SOURCE_NAMES = {4: "HDMI 1", 5: "HDMI 2", 6: "HDMI 3", 9: "Google TV"}
+
+def source_name(source):
+    return SOURCE_NAMES.get(source, f"Source {source}") if source is not None else None
+
 SIGNALS = {
     0: "SDR 2K", 1: "SDR 4K", 2: "SDR 8K", 3: "HDR10",
     4: "HLG", 5: "Dolby Vision", 6: "HDR10+",

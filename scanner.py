@@ -3,7 +3,7 @@ import json
 import time
 from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SIGNALS
 
-def scan(target, seed, adb, decode, progress, cancelled):
+def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
     def call(tx,payload):
         return decode(adb("-s",target,"shell",f"service call {SERVICE} {tx} s16 '{json.dumps(payload,separators=(',',':'))}'"))
     def get(keys):
@@ -26,6 +26,8 @@ def scan(target, seed, adb, decode, progress, cancelled):
     original=context()
     if set(original)!=set(CONTEXT_KEYS):
         raise ValueError("Incomplete initial context")
+    if on_source is not None:
+        on_source(original["source"])
     candidates=seed.get("parameter_candidates",{})
     keys=sorted({k for group in candidates.values() if isinstance(group,list) for k in group if isinstance(k,str) and k.replace("_","").isalnum()} | set(CONTEXT_KEYS) | {"pq_apply"})
     for group in seed.get("profiles",{}).values():

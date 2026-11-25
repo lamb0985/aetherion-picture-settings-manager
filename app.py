@@ -15,7 +15,7 @@ import socket
 import secrets
 from datetime import datetime, timezone
 from werkzeug.exceptions import BadRequest
-from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES
+from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name
 import device_manager as devices
 import scanner
 import sqlite3
@@ -80,6 +80,7 @@ def summarize(data):
     records = [p for g in data["profiles"].values() for p in g["profiles"].values()]
     return {
         "source": data.get("original_context", {}).get("source"),
+        "source_name": source_name(data.get("original_context", {}).get("source")),
         "profiles": len(records),
         "general": sum(len(p["settings"]) for p in records),
         "indexed": sum(len(e["settings"]) for p in records for s in p.get("indexed", {}).values() for e in s["values"].values()),
@@ -172,7 +173,7 @@ def connect():
         if adb("-s", target, "get-state").strip() != "device":
             raise ValueError("Device not authorized or not connected")
         context = live_context(target)
-        return jsonify(status="connected", context=context)
+        return jsonify(status="connected", context=context, source_name=source_name(context["source"]))
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as exc:
         return jsonify(error=str(exc)), 503
     finally:
@@ -190,7 +191,8 @@ def guard_mutations():
 def list_devices():
     result=devices.registry(CONFIG)
     d=devices.active_device(CONFIG)
-    result["sources"]=devices.sources(CONFIG,d["id"]) if d else []
+    result["sources"]=[{**s, "name":source_name(s["source"])} for s in devices.sources(CONFIG,d["id"])] if d else []
+    result["source_names"]=SOURCE_NAMES
     return jsonify(result)
 
 @app.post("/api/devices")
@@ -228,13 +230,14 @@ def start_scan():
         if not seed.get("profiles"):
             raise ValueError("Import a discovery catalog first")
         CANCEL.clear()
-        SCAN.update(status="running",done=0,error=None,started=time.time(),device=d["id"])
+        SCAN.update(status="running",done=0,error=None,started=time.time(),device=d["id"],source=None,source_name=None,signal=None,mode=None)
         def worker():
             try:
                 adb("connect",target)
                 if adb("-s",target,"get-state").strip()!="device":
                     raise ValueError("ADB not connected")
-                data=scanner.scan(target,seed,adb,decode_parcel,lambda n,s,m: SCAN.update(done=n,signal=s,mode=m),CANCEL.is_set)
+                data=scanner.scan(target,seed,adb,decode_parcel,lambda n,s,m: SCAN.update(done=n,signal=s,mode=m),CANCEL.is_set,
+                                  on_source=lambda source: SCAN.update(source=source,source_name=source_name(source)))
                 devices.store(CONFIG,d["id"],validate(data))
                 SCAN.update(status="complete",summary=summarize(data))
             except InterruptedError as exc:
