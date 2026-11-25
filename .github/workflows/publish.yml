@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  statuses: write
 concurrency:
   group: dockerhub-publish
   cancel-in-progress: false
@@ -12,6 +13,14 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Report publication pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context=dockerhub/publish \
+            -f description='Building and verifying Docker Hub image' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -25,6 +34,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v3
       - name: Build and publish
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -32,5 +42,48 @@ jobs:
           tags: |
             lamb0985/aetherion-picture-settings-manager:latest
             lamb0985/aetherion-picture-settings-manager:sha-${{ github.sha }}
-
-# Retry requested Docker Hub publication.
+      - name: Verify published Docker Hub digest
+        id: verify
+        env:
+          IMAGE: lamb0985/aetherion-picture-settings-manager
+          EXPECTED: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED" =~ ^sha256:[0-9a-f]{64}$ ]]
+          for attempt in {1..8}; do
+            if docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' > manifest.json &&
+               docker buildx imagetools inspect "$IMAGE:latest" --format '{{json .Manifest}}' > latest.json &&
+               jq -e --arg expected "$EXPECTED" '.digest == $expected' manifest.json >/dev/null &&
+               jq -e --arg expected "$EXPECTED" '.digest == $expected' latest.json >/dev/null; then
+              echo "digest=$EXPECTED" >> "$GITHUB_OUTPUT"
+              echo "Verified $IMAGE:sha-$GITHUB_SHA and :latest at $EXPECTED" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Docker Hub tag or digest verification failed' >&2
+          exit 1
+      - name: Report publication result
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.verify.outcome }}
+          DIGEST: ${{ steps.verify.outputs.digest }}
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=failure
+          description="Publication failed or was not verified"
+          if [[ "$RESULT" == success && "$JOB_STATUS" == success ]]; then
+            state=success
+            description="Verified $DIGEST"
+          elif [[ "$JOB_STATUS" == cancelled ]]; then
+            state=error
+            description="Publication cancelled"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" -f context=dockerhub/publish \
+            -f description="$description" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
