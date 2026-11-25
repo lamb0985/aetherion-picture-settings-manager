@@ -260,18 +260,45 @@ for(const [button,dialog] of [["openScan","scanDialog"],["openSource","sourceDia
 for(const button of document.querySelectorAll("[data-close-dialog]"))button.onclick=()=>$(button.dataset.closeDialog).close();
 for(const dialog of document.querySelectorAll(".utility-dialog"))dialog.addEventListener("click",e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
 
-// Keep the menu viewport aligned to the mirror itself, not the remote toolbar.
+// Match the display and natural menu height without constraining either panel.
+const menuRows=$("rows"),menuScreen=$("remoteScreen"),menuPanel=$("remotePanel");
+let alignmentFrame=0;
 function alignNativeMenu(){
- const rows=$("rows"),screen=$("remoteScreen"),panel=$("remotePanel");
- const rect=screen.getBoundingClientRect(),grid=rows.parentElement.getBoundingClientRect();
- const aligned=panel.open&&rect.height>0&&window.innerWidth>1000;
- rows.classList.toggle("mirror-aligned",aligned);
- if(aligned){rows.style.setProperty("--mirror-offset",Math.max(0,rect.top-grid.top-($("menuColumn").querySelector(".profile-toolbar").offsetHeight+8))+"px");rows.style.setProperty("--mirror-height",rect.height+"px")}
+ cancelAnimationFrame(alignmentFrame);
+ alignmentFrame=requestAnimationFrame(()=>{
+   const aligned=menuPanel.open&&window.innerWidth>1000;
+   menuRows.classList.toggle("mirror-aligned",aligned);
+   menuScreen.classList.toggle("mirror-aligned",aligned);
+   if(!aligned){menuRows.style.removeProperty("--mirror-offset");menuRows.style.removeProperty("--shared-height");menuScreen.style.removeProperty("--shared-height");return}
+   const toolbar=$("menuColumn").querySelector(".profile-toolbar");
+   const offset=Math.max(0,menuScreen.getBoundingClientRect().top-toolbar.getBoundingClientRect().bottom-8);
+   // Measure intrinsic content, not the previously stretched menu.
+   const groups=[...menuRows.children];
+   let natural=0;
+   for(const group of groups){
+     const style=getComputedStyle(group);
+     const children=[...group.children];
+     if(group.classList.contains("native-menu")){
+       natural+=parseFloat(style.paddingTop)+parseFloat(style.paddingBottom)+parseFloat(style.borderTopWidth)+parseFloat(style.borderBottomWidth);
+       for(const child of children){const cs=getComputedStyle(child);natural+=child.getBoundingClientRect().height+parseFloat(cs.marginTop||0)+parseFloat(cs.marginBottom||0)}
+     }else natural+=group.getBoundingClientRect().height;
+     natural+=parseFloat(style.marginTop||0)+parseFloat(style.marginBottom||0);
+   }
+   if(!groups.length)natural=40;
+   const width=menuScreen.getBoundingClientRect().width;
+   const height=Math.ceil(Math.max(width*9/16,natural));
+   menuRows.style.setProperty("--mirror-offset",offset+"px");
+   menuRows.style.setProperty("--shared-height",height+"px");
+   menuScreen.style.setProperty("--shared-height",height+"px");
+ });
 }
 const mirrorLayoutObserver=new ResizeObserver(alignNativeMenu);
-mirrorLayoutObserver.observe($("remoteScreen"));
-mirrorLayoutObserver.observe($("remotePanel"));
-$("remotePanel").addEventListener("toggle",alignNativeMenu);
+mirrorLayoutObserver.observe(menuScreen);
+mirrorLayoutObserver.observe(menuPanel);
+mirrorLayoutObserver.observe(menuRows);
+const menuMutationObserver=new MutationObserver(alignNativeMenu);
+menuMutationObserver.observe(menuRows,{childList:true,subtree:true,characterData:true});
+menuPanel.addEventListener("toggle",alignNativeMenu);
 window.addEventListener("resize",alignNativeMenu);
 alignNativeMenu();
 

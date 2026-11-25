@@ -111,8 +111,18 @@ main{padding:12px 16px}
 .unified-workspace .remote-keys button{font-size:11px;padding:5px 3px}
 .unified-workspace .remote-panel .toolbar>label{min-width:65px}
 .unified-workspace .remote-panel .toolbar>label select{width:100%;min-width:0}
-@media(min-width:1001px){.unified-workspace #rows.mirror-aligned{margin-top:var(--mirror-offset,0px);height:var(--mirror-height,auto);min-height:0}}
+
 @media(max-width:1000px){.unified-workspace{grid-template-columns:1fr}.unified-workspace .settings-sidebar{display:grid;grid-template-columns:1fr 1fr 1fr}.unified-workspace .settings-sidebar .toolbar{flex-direction:column}.settings-mirror-grid{grid-template-columns:minmax(210px,280px) minmax(0,1fr)}}
 @media(max-width:700px){.unified-workspace .settings-sidebar{display:flex}.settings-mirror-grid{grid-template-columns:1fr}.unified-workspace .remote-panel{grid-row:1}.unified-workspace .picture-content .remote-layout{grid-template-columns:1fr}}
 
 #menuColumn{min-width:0}.profile-toolbar{display:flex;flex-wrap:nowrap;gap:6px;padding:7px;margin:0 0 8px}.profile-toolbar label{flex:1;min-width:0;font-size:11px}.profile-toolbar select{width:100%;min-width:0;padding:5px;font-size:12px}.bulk-form{align-items:stretch;flex-direction:column}.bulk-form label{min-width:0}.bulk-form [hidden],#bulkProfiles[hidden]{display:none}#bulkProfiles{max-height:180px;overflow:auto}#bulkProfiles label{flex-direction:row;align-items:center;font-size:12px}#bulkResults{max-height:260px;overflow:auto;font-size:12px}#bulkProgress{width:100%;accent-color:var(--green)}.bulk-result{padding:5px;border-bottom:1px solid var(--line)}
+
+/* Never clip the emulated settings. Mirror viewport grows to the taller panel. */
+.unified-workspace .picture-content #rows{overflow:visible;height:auto;max-height:none;scrollbar-width:auto}
+.unified-workspace .native-menu.group{min-height:0}
+@media(min-width:1001px){
+ .unified-workspace #rows.mirror-aligned{margin-top:var(--mirror-offset,0px);min-height:var(--shared-height,0px)}
+ .unified-workspace #remoteScreen.mirror-aligned:not(:fullscreen){height:var(--shared-height,auto);min-height:0;aspect-ratio:auto}
+ .unified-workspace #rows.mirror-aligned{display:flex;flex-direction:column}
+ .unified-workspace #rows.mirror-aligned>.group:last-child{flex:1 0 auto}
+}
