@@ -19,26 +19,42 @@ Object.assign(liveEnums,{"high_dynamic":[0,1],"dark_detail":[0,1],"active_contra
 let live=null,reading=false,writing=false,dragging=false,scanBusy=false,epoch=0,liveSignature="";
 const isLive=()=>$("liveEdit").checked;
 const liveReady=()=>isLive()&&live&&live.device===registry.active&&!scanBusy;
+let activeTile=null,optionMenu=null;
+const parentMenu={luminance:"picture",color:"picture",clarity:"picture",calibration:"picture",white_balance:"calibration",wb2:"white_balance",white_balance_20_point:"white_balance",gamma_calibration:"calibration",color_management:"calibration",iris:"laser"};
+function focusTile(row,key){activeTile=key;for(const tile of $("rows").querySelectorAll(".native-selected"))tile.classList.remove("native-selected");row.classList.add("native-selected")}
 function menuRow(section,key,info,name=label(key)){
  if(!matches(key,name))return;
- const row=document.createElement("div");row.className="setting-row";
+ const row=document.createElement("div");row.className="setting-row native-tile";row.dataset.key=key;if(activeTile===key)row.classList.add("native-selected");
  const left=document.createElement("div");left.className="setting-name";left.textContent=name;
  const raw=document.createElement("small");raw.className="raw-detail";raw.textContent=key+" · value: "+String(info.value??"—")+" · range: "+(Array.isArray(info.range)?info.range.join(" / "):info.range??"—")+" · state: "+(info.state??"—");left.append(raw);row.append(left);
  const right=document.createElement("div");right.className="setting-value";
- const value=document.createElement("strong");value.textContent=tab==="diagnostics"?(info.value??"—"):display(key,info,name);
+ const value=document.createElement("strong");value.className="native-current";value.textContent=tab==="diagnostics"?(info.value??"—"):display(key,info,name);
  const range=info.range,limits=liveRanges[key],choices=key==="pic_mode"?live?.modes:liveEnums[key];
  const numeric=limits&&Array.isArray(range)&&range[0]===limits[0]&&range[2]===limits[1]&&Number.isInteger(info.value)&&info.value>=limits[0]&&info.value<=limits[1];
  const editable=liveReady()&&tab!=="diagnostics"&&Number.isInteger(live.settings.pq_apply?.value)&&live.settings[key]===info;
  if(editable&&(numeric||choices?.includes(info.value))){
-   const control=document.createElement(numeric?"input":"select");control.setAttribute("aria-label",name);
-   if(numeric){control.type="range";control.min=limits[0];control.max=limits[1];control.step=1;control.oninput=()=>{value.textContent=control.value};control.onpointerdown=()=>{dragging=true};control.onkeydown=()=>{dragging=true}}
-   else for(const choice of choices){if(key==="gamma_adjust"&&choice>=12&&choice!==info.value&&live.context.signal_dr_type<=2)continue;option(control,choice,display(key,{value:choice},name))}
-   control.value=info.value;control.disabled=writing||(live.settings.pq_apply.value===1&&!$("allSourcesAck").checked);
-   const state=live;control.onchange=()=>{dragging=false;writeLive(key,name,Number(control.value),state,control)};
-   control.onblur=()=>{dragging=false};control.onpointercancel=()=>{dragging=false};
-   right.append(control);
+   const locked=writing||(live.settings.pq_apply.value===1&&!$("allSourcesAck").checked);
+   const state=live;
+   if(numeric){
+     row.classList.add("native-slider-tile");
+     const control=document.createElement("input");control.type="range";control.min=limits[0];control.max=limits[1];control.step=1;control.value=info.value;control.disabled=locked;control.setAttribute("aria-label",name);
+     control.oninput=()=>{value.textContent=control.value;focusTile(row,key)};
+     control.onpointerdown=()=>{dragging=true;focusTile(row,key)};control.onkeydown=()=>{dragging=true;focusTile(row,key)};
+     control.onchange=()=>{dragging=false;writeLive(key,name,Number(control.value),state,control)};
+     control.onblur=()=>{dragging=false};control.onpointercancel=()=>{dragging=false};right.append(control);
+   }else{
+     row.classList.add("native-choice-tile");
+     const valid=choices.filter(c=>!(key==="gamma_adjust"&&c>=12&&c!==info.value&&live.context.signal_dr_type<=2));
+     const index=valid.indexOf(info.value);
+     const arrow=(direction,caption)=>{
+       const button=document.createElement("button");button.className="native-arrow";button.textContent=caption;button.setAttribute("aria-label",name+(direction<0?" previous":" next"));button.disabled=locked||index+direction<0||index+direction>=valid.length;
+       button.onclick=()=>{focusTile(row,key);writeLive(key,name,valid[index+direction],state,button)};return button;
+     };
+     const current=document.createElement("button");current.className="native-option-value";current.textContent=display(key,info,name);current.disabled=locked;current.setAttribute("aria-label","Choose "+name);current.onclick=()=>{activeTile=key;optionMenu={key,name,choices:valid};render()};
+     right.append(arrow(-1,"‹"),current,arrow(1,"›"));value.hidden=true;
+   }
  }else if(Array.isArray(range)&&range.length===3&&range.every(Number.isFinite)&&range[2]>range[0]&&Number.isFinite(info.value)&&info.value>=range[0]&&info.value<=range[2]){
-   const meter=document.createElement("meter");meter.min=range[0];meter.max=range[2];meter.value=info.value;meter.setAttribute("aria-label",name+" value");right.append(meter)
+   row.classList.add("native-slider-tile");const meter=document.createElement("meter");meter.min=range[0];meter.max=range[2];meter.value=info.value;meter.setAttribute("aria-label",name+" value");right.append(meter)
  }
  right.append(value);row.append(right);section.append(row);
 }
@@ -104,7 +120,7 @@ async function setLive(on){
  if(on){$("liveScope").textContent="Reading projector…";render();await syncLive()}
  else{for(const o of Array.from($("dbSource").options))if(o.dataset.liveOnly)o.remove();$("dbSource").value="";$("liveScope").textContent="Stored snapshots — read-only";await load()}
 }
-function mount(section){if(section.children.length>1)$("rows").append(section)}
+function mount(section){if(section.children.length<=1)return;if(tab!=="diagnostics"){section.classList.add("native-menu");if(parentMenu[tab]&&!section.classList.contains("native-options")){const back=document.createElement("button");back.className="native-back";back.textContent="‹ Back";back.onclick=()=>navigate(parentMenu[tab]);section.insertBefore(back,section.children[1])}}$("rows").append(section)}
 // Native menu order follows the Aetherion Max recording. Aliases are read-only
 // candidates; missing keys are shown explicitly, never substituted with defaults.
 const nativeGroups={
@@ -139,9 +155,9 @@ const fallbackEnums={active_contrast:{0:"Off",1:"Low",2:"Medium",3:"High"},dynam
 const switchLabels=new Set(["Enhanced Black Level","Dark Detail","Brightness Enhancer","HDR Enhancer","Color Temperature Adaptation","20 Point"]);
 function resolve(p,keys){return keys.find(k=>Object.prototype.hasOwnProperty.call(p.settings,k))}
 function showSetting(s,p,name,keys){const k=resolve(p,keys);if(k){menuRow(s,k,p.settings[k],name)}else if(matches(keys.join(" "),name)){const r=document.createElement("div");r.className="setting-row";r.textContent=name;const c=document.createElement("small");c.textContent=isLive()?"Not returned by projector":"Not in snapshot";r.append(c);s.append(r)}}
-function navRow(s,name,id){if(!matches(id,name))return;const b=document.createElement("button");b.className="native-link";b.textContent=name+"  ›";b.onclick=()=>navigate(id);s.append(b)}
+function navRow(s,name,id){if(!matches(id,name))return;const b=document.createElement("button");b.className="native-link";b.textContent=name;const chevron=document.createElement("span");chevron.textContent="›";chevron.setAttribute("aria-hidden","true");b.append(chevron);b.onclick=()=>navigate(id);s.append(b)}
 function unavailableAction(s,name){if(!matches(name,name))return;const b=document.createElement("button");b.className="native-link";b.disabled=true;b.textContent=name+" (read-only)";s.append(b)}
-function navigate(id){tab=id;tabs();if(isLive()){epoch++;live=null;liveSignature="";render();syncLive()}else render()}
+function navigate(id){optionMenu=null;activeTile=null;tab=id;tabs();if(isLive()){epoch++;live=null;liveSignature="";render();syncLive()}else render()}
 function calibrationLabel(tab,id,entry){if(entry.label&&tab!=="color_management")return entry.label;if(tab==="white_balance_20_point"||tab==="gamma_calibration")return (Number(id)+1)*5+"%";const e=data.menu_enumerations||{},v=e.picture_color_tuner_color_entries_values,l=e.picture_color_tuner_color_entries;if(Array.isArray(v)&&Array.isArray(l)){const i=v.findIndex(x=>String(x)===String(id));if(i>=0&&i<l.length)return l[i]}return ["Red","Green","Blue","Yellow","Cyan","Magenta","Flesh Tone"][Number(id)]||"Color "+id}
 function indexedView(p,id){const s=group(indexedTabs[id]),values=p.indexed?.[id]?.values||{},entries=Object.entries(values).sort((a,b)=>Number(a[0])-Number(b[0]));
  if(id==="white_balance_20_point")showSetting(s,p,"20 Point",["20p_wb"]);
@@ -151,6 +167,19 @@ function indexedView(p,id){const s=group(indexedTabs[id]),values=p.indexed?.[id]
  else {const m=document.createElement("p");m.className="notice";m.textContent="No indexed records in this snapshot.";s.append(m)}
  unavailableAction(s,id==="color_management"?"Reset Color Tuner Settings":id==="gamma_calibration"?"Restore Gamma Calibration":"Reset White Balance");mount(s)}
 function render(){ $("rows").replaceChildren();const p=isLive()?(liveReady()?{settings:live.settings,indexed:{}}:null):profiles()[$("profile").value];if(!p){$("rows").textContent=isLive()?"Waiting for live projector values…":"Select a device and import or scan a picture settings snapshot.";return}
+ if(optionMenu&&isLive()){
+   const {key,name,choices}=optionMenu,info=live.settings[key];
+   if(info){
+     const s=group(name);s.classList.add("native-options");
+     const back=document.createElement("button");back.className="native-back";back.textContent="‹ Back";back.onclick=()=>{optionMenu=null;render()};s.append(back);
+     for(const choice of choices){
+       const button=document.createElement("button");button.className="native-radio"+(choice===info.value?" native-selected":"");button.setAttribute("role","radio");button.setAttribute("aria-checked",String(choice===info.value));button.textContent=display(key,{value:choice},name);button.disabled=writing||(live.settings.pq_apply?.value===1&&!$("allSourcesAck").checked);
+       button.onclick=()=>{optionMenu=null;writeLive(key,name,choice,live,button)};s.append(button);
+     }
+     mount(s);return;
+   }
+   optionMenu=null;
+ }
  if(tab==="picture"){const s=group("Picture");showSetting(s,p,"Picture Mode",["pic_mode"]);showSetting(s,p,"Apply Picture Settings",["pq_apply"]);for(const id of ["luminance","color","clarity"])navRow(s,nativeGroups[id][0],id);navRow(s,"Calibration Settings","calibration");unavailableAction(s,"Reset");mount(s)}
  else if(nativeGroups[tab]){const [title,items]=nativeGroups[tab],s=group(title);for(const [name,keys] of items)showSetting(s,p,name,keys);if(tab==="clarity"){const k=resolve(p,["memc","motion_enhancement"]);if(k&&Number(p.settings[k].value)===1){showSetting(s,p,"Judder Reduction",["memc_dejudder"]);showSetting(s,p,"Blur Reduction",["memc_deblur"])}}mount(s)}
  else if(tab==="laser"){const s=group("Laser Settings");for(const name of ["Projection Mode","Auto Keystone Correction","Manual Keystone Correction","Focus Adjustment","Eye Protection","3D","3D Left&Right Switch","3D to 2D"])unavailableAction(s,name+" — mapping pending");navRow(s,"IRIS","iris");unavailableAction(s,"Low Noise Mode — mapping pending");mount(s)}
