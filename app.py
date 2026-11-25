@@ -15,7 +15,7 @@ import socket
 import secrets
 from datetime import datetime, timezone
 from werkzeug.exceptions import BadRequest
-from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name
+from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name, LIVE_RANGES, LIVE_ENUMS
 import device_manager as devices
 import scanner
 import sqlite3
@@ -116,6 +116,65 @@ def decode_parcel(raw):
     if status or length <= 0 or len(data) < 8 + length * 2:
         raise ValueError("Invalid Binder response")
     return json.loads(data[8:8 + length * 2].decode("utf-16le"))
+
+def picture_call(target, tx, payload):
+    encoded=json.dumps(payload,separators=(",",":"))
+    return decode_parcel(adb("-s",target,"shell",f"service call {SERVICE} {tx} s16 '{encoded}'"))
+
+@app.post("/api/live/setting")
+def live_setting():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    attempted=False
+    try:
+        p=request.get_json()
+        key=p["key"]
+        if key not in LIVE_RANGES and key not in LIVE_ENUMS:
+            raise ValueError("Setting is not enabled for experimental live editing")
+        d=devices.active_device(CONFIG)
+        if not d or d["id"]!=p.get("device"):
+            raise ValueError("Selected device changed")
+        expected=p["context"]
+        if set(expected)!=set(CONTEXT_KEYS) or any(type(v) is not int for v in expected.values()):
+            raise ValueError("Invalid expected context")
+        target=devices.address(d["host"],d["port"])
+        if adb("-s",target,"get-state").strip()!="device":
+            raise ValueError("Connect the projector first")
+        def check():
+            if live_context(target)!=expected:
+                raise ValueError("Live source, signal or picture mode differs from selected profile")
+        def read():
+            item=picture_call(target,1,{"cmd":"get_video_all","msg":{key:["value","range","state"],"pq_apply":["value"]}})["msg"]
+            return item[key],item["pq_apply"]["value"]
+        check()
+        current,scope=read()
+        if "value" not in p:
+            return jsonify(setting=current,scope=scope,context=expected)
+        value=p["value"]
+        if type(value) is not int or p.get("previous")!=current["value"] or p.get("scope")!=scope:
+            raise ValueError("Value or apply scope changed; read again")
+        if key in LIVE_RANGES:
+            lo,hi=LIVE_RANGES[key]
+            bounds=current.get("range")
+            if not isinstance(bounds,list) or len(bounds)!=3 or bounds[0]!=lo or bounds[2]!=hi or not lo<=value<=hi:
+                raise ValueError("Live range does not match expected bounds")
+        elif value not in LIVE_ENUMS[key]:
+            raise ValueError("Unsupported enumeration value")
+        check()
+        attempted=True
+        result=picture_call(target,2,{key:value})
+        if result.get("status")!=0 or result.get("result")!=0:
+            raise ValueError("Native setter rejected change")
+        time.sleep(.2)
+        check()
+        actual,scope=read()
+        if actual["value"]!=value:
+            raise ValueError("Readback differs from requested value")
+        return jsonify(setting=actual,scope=scope,context=expected,previous=current["value"])
+    except Exception as exc:
+        return jsonify(error=str(exc)+(" — write attempted; verify actual projector state before retrying" if attempted else "")),400
+    finally:
+        ADB_LOCK.release()
 
 def live_context(target):
     payload = json.dumps({"cmd": "get_video_all", "msg": {k: ["value"] for k in CONTEXT_KEYS}}, separators=(",", ":"))
@@ -297,11 +356,23 @@ def remote_key():
     try:
         p=request.get_json()
         key=p.get("key")
-        if key not in ("DPAD_UP","DPAD_DOWN","DPAD_LEFT","DPAD_RIGHT","DPAD_CENTER","BACK","HOME","MENU","SETTINGS","PICTURE_SETTINGS","VOLUME_UP","VOLUME_DOWN","VOLUME_MUTE"):
+        if key not in ("DPAD_UP","DPAD_DOWN","DPAD_LEFT","DPAD_RIGHT","DPAD_CENTER","BACK","HOME","MENU","SETTINGS","PICTURE_SETTINGS","VOLUME_UP","VOLUME_DOWN","VOLUME_MUTE","HDMI_1","HDMI_2","HDMI_3"):
             raise ValueError("Unsupported remote key")
         if not remote.running() or remote.target!=endpoint() or p.get("token")!=REMOTE_TOKEN:
             raise ValueError("Start a remote session first")
-        if key == "PICTURE_SETTINGS":
+        if key in ("HDMI_1","HDMI_2","HDMI_3"):
+            port=int(key[-1])
+            uri=f"content://android.media.tv/passthrough/com.vt.source.external%2F.hdmi.HdmiTvInputService%2FHW{port+1}"
+            result=adb("-s",remote.target,"shell","am","start","-W","-a","android.intent.action.VIEW","-n","com.vt.tv.tvcenter/.LiveTVMainActivity","-d",uri)
+            if "Error" in result or "Exception" in result:
+                raise ValueError(result.strip())
+            for _ in range(10):
+                time.sleep(.5)
+                if live_context(remote.target)["source"]==port+3:
+                    remote.touch()
+                    return jsonify(status="ok",source_name=f"HDMI {port}")
+            raise ValueError("Input switch not confirmed")
+        elif key == "PICTURE_SETTINGS":
             result = adb("-s",remote.target,"shell","am","start","-n","com.vt.customsettings/com.vt.customsettings.picture.ui.PictureActivity")
             if "Error" in result or "Exception" in result:
                 raise ValueError(result.strip())

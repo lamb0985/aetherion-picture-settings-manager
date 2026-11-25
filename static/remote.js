@@ -8,4 +8,4 @@ $("remoteStart").onclick=async()=>{const b=$("remoteStart");b.disabled=true;try{
 $("remoteStop").onclick=async()=>{try{await post("/api/remote/stop");detach();msg("Stopped")}catch(e){msg(e.message)}};
 $("remoteFull").onclick=()=> $("remoteScreen").requestFullscreen().catch(e=>msg(e.message));
 $("remoteShot").onclick=async()=>{try{const r=await post("/api/remote/screenshot",{token});msg("Saved /config/screenshots/"+r.file)}catch(e){msg(e.message)}};
-for(const b of document.querySelectorAll("[data-key]"))b.onclick=()=>post("/api/remote/key",{key:b.dataset.key,token}).catch(e=>msg(e.message));
+for(const b of document.querySelectorAll("[data-key]"))b.onclick=async()=>{b.disabled=true;try{const result=await post("/api/remote/key",{key:b.dataset.key,token});if(result.source_name)msg("Switched to "+result.source_name)}catch(e){msg(e.message)}finally{b.disabled=false}};

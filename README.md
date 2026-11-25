@@ -4,7 +4,7 @@ A self-hosted picture settings and calibration manager for AWOL Aetherion projec
 
 ## Development status
 
-**Pre-release development build.** The source can be built locally. The Docker Hub image is available. The current application provides persistent device configuration, a source-specific settings catalog, live ADB context checks and a picture mode scanner. Live adjustment and batch editing are not enabled.
+**Pre-release development build.** The source can be built locally. The Docker Hub image is available. The current application provides persistent device configuration, a source-specific settings catalog, live ADB context checks and a picture mode scanner. Experimental single-setting live tests are available for an explicit allowlist; batch editing is not enabled.
 
 Research on Aetherion MAX firmware `V0000.01.00U.Q1015 31` has established 53 accessible signal/profile combinations on one input, with successful batch updates of two-point RGB gains and color temperature. Compatibility with other firmware versions, inputs and models is not established.
 
@@ -70,7 +70,7 @@ The verified Aetherion Max source IDs are `4` = HDMI 1, `5` = HDMI 2, `6` = HDMI
 
 ## Picture settings interface
 
-The picture browser follows the observed Aetherion Max native Picture menu: Picture Mode, Apply Picture Settings, Laser Luminance, Color, Clarity, Calibration Settings and Reset. Calibration Settings contains Color Tuner, White Balance (2 Point / 20 Point) and Gamma Calibration. Indexed selectors browse stored color and input-level records without sending ADB writes. The RGB offsets precede gains. Reset actions are disabled. SDR profile labels and some parameter aliases follow the agreed research assumptions and may need refinement; missing records are explicitly indicated. Raw Diagnostics retains all general and indexed records, including settings outside the native Picture menu. Values remain read-only snapshots, not live adjustments. Bars display reported numeric ranges; native availability and conditional visibility may differ by firmware, source and signal.
+The picture browser follows the observed Aetherion Max native Picture menu: Picture Mode, Apply Picture Settings, Laser Luminance, Color, Clarity, Calibration Settings and Reset. Calibration Settings contains Color Tuner, White Balance (2 Point / 20 Point) and Gamma Calibration. Indexed selectors browse stored color and input-level records without sending ADB writes. The RGB offsets precede gains. Reset actions are disabled. SDR profile labels and some parameter aliases follow the agreed research assumptions and may need refinement; missing records are explicitly indicated. Raw Diagnostics retains all general and indexed records, including settings outside the native Picture menu. Snapshots remain read-only; optional live tests query and write the active projector separately. Bars display reported numeric ranges; native availability and conditional visibility may differ by firmware, source and signal.
 
 ## Remote control (experimental)
 
@@ -110,3 +110,7 @@ python -m unittest discover -s tests -v
 
 CI runs the tests and attempts a Docker build. Physical projector connectivity and calibration writes require separate hardware verification.
 
+
+## Experimental live tests
+
+Connect the projector, select a snapshot matching the active source, signal and picture mode, then enable experimental live tests. Each test reads the actual value and apply scope, requests explicit confirmation, checks the context and current value again, writes a single allowlisted key and verifies readback. All Sources may affect other inputs. Snapshots are deliberately unchanged; rescan to capture changes. Indexed adjustments, reset, unidentified laser controls and batch writes remain disabled. Native state semantics are not established. Do not use other remotes or change inputs during a test. The three HDMI shortcuts use the hardware-verified native TV passthrough intents. Laser Settings navigation is separate; direct Laser Settings activity is not yet verified.

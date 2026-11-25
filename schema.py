@@ -39,3 +39,8 @@ ENUMS = {
 }
 # The native state field is deliberately preserved as an opaque integer.
 # An observed enum or range is not evidence that every option is supported.
+
+# Experimental live adjustment allowlist; validate current hardware range too.
+LIVE_RANGES = {"backlight":[0,10],"contrast":[0,100],"brightness":[-50,50],"saturation":[0,100],"hue":[-50,50],"sharpness":[0,50],"memc_dejudder":[0,10],"memc_deblur":[0,10],"2p_wb_gain_red":[-25,25],"2p_wb_gain_green":[-25,25],"2p_wb_gain_blue":[-25,25],"2p_wb_offset_red":[-25,25],"2p_wb_offset_green":[-25,25],"2p_wb_offset_blue":[-25,25]}
+LIVE_ENUMS = {"color_temp":[0,1,2,3],"memc":[0,1,2,3,4,5],"pq_apply":[0,1],"20p_wb":[0,1]}
+EXTRA_SCAN_KEYS = ["temp_wb","ai_sr","nr","mpeg_nr","high_brightness","active_contrast","memc_dejudder","memc_deblur","backlight","brightness"]

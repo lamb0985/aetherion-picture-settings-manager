@@ -1,7 +1,7 @@
 """Conservative scanner: only context and index selectors are written."""
 import json
 import time
-from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SIGNALS
+from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SIGNALS, EXTRA_SCAN_KEYS
 
 def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
     def call(tx,payload):
@@ -35,6 +35,7 @@ def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
             keys=sorted(set(keys)|{k for k in p.get("settings",{}) if k.replace("_","").isalnum()})
     if len(keys)<=4:
         raise ValueError("Import the discovery catalog once to supply the known parameter list")
+    keys=sorted(set(keys)|set(EXTRA_SCAN_KEYS))
     data={"original_context":original,"parameter_candidates":candidates,"menu_enumerations":seed.get("menu_enumerations",{}),"profiles":{}}
     modes={}
     selectors={}
