@@ -32,3 +32,5 @@ jobs:
           tags: |
             lamb0985/aetherion-picture-settings-manager:latest
             lamb0985/aetherion-picture-settings-manager:sha-${{ github.sha }}
+
+# Retry requested Docker Hub publication.
