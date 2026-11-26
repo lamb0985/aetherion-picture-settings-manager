@@ -7,7 +7,9 @@ RUN printf 'deb http://deb.debian.org/debian trixie-backports main contrib\n' > 
     && scrcpy --version \
     && test -f /usr/share/novnc/core/rfb.js \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /config /backups /logs
+    && mkdir -p /config /backups /logs \
+    && chown 1000:1000 /config /backups /logs \
+    && chmod 775 /config /backups /logs
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py schema.py device_manager.py scanner.py cli_transport.py remote.py bulk.py ./

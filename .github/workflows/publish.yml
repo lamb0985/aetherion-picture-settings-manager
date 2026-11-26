@@ -55,6 +55,31 @@ jobs:
             sleep 1
           done
           exit 1
+      - name: Verify configured UID and GID with bind mounts
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir "$root/config" "$root/backups" "$root/logs"
+          sudo chown 1000:100 "$root/config" "$root/backups" "$root/logs"
+          sudo chmod 775 "$root/config" "$root/backups" "$root/logs"
+          trap 'docker logs apsm-identity || true; docker rm -f apsm-identity || true; sudo rm -rf "$root"' EXIT
+          docker run -d --name apsm-identity -p 127.0.0.1:15055:5055 \
+            -e PUID=1000 -e PGID=100 \
+            -v "$root/config:/config" -v "$root/backups:/backups" -v "$root/logs:/logs" apsm-smoke:local
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:15055/api/devices >/dev/null; then
+              docker exec apsm-identity python -c 's=dict(line.split(":",1) for line in open("/proc/1/status") if ":" in line); assert s["Uid"].split()==["1000"]*4; assert s["Gid"].split()==["100"]*4'
+              test "$(stat -c '%u:%g' "$root/config/apsm.db")" = "1000:100"
+              test "$(stat -c '%u:%g:%a' "$root/config")" = "1000:100:775"
+              exit 0
+            fi
+            if [[ "$(docker inspect -f '{{.State.Running}}' apsm-identity)" != true ]]; then
+              exit 1
+            fi
+            sleep 1
+          done
+          exit 1
       - name: Build and publish
         id: build
         uses: docker/build-push-action@v6

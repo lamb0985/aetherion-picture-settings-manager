@@ -24,6 +24,14 @@ def main():
         except KeyError:
             account=f"apsm-u{uid}"
             subprocess.run(["useradd","-u",str(uid),"-g",group,"-d","/config","-M","-s","/usr/sbin/nologin",account],check=True)
+        # Bind mounts and Docker volumes must retain the host's ownership.
+        # /proc/self/mountinfo identifies bind mounts even on the same filesystem.
+        with open("/proc/self/mountinfo") as mounts:
+            mountpoints={line.split()[4] for line in mounts if line.strip()}
+        for directory in ("/config","/backups","/logs"):
+            if directory not in mountpoints:
+                os.chown(directory,uid,gid)
+                os.chmod(directory,0o775)
         os.setgroups([])
         os.setgid(gid)
         os.setuid(uid)
