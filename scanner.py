@@ -18,7 +18,21 @@ def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
         session.call(2, {"bypass_mask":2})
         if session.call(1, {"get_value":"bypass_mask"}).get("bypass_mask") != 2:
             raise ValueError("Picture update suppression failed")
-        return _scan(seed, session.call, progress, cancelled, on_source, session.recover)
+        next_keep_awake = time.monotonic() + 60
+        def scan_call(tx, payload):
+            nonlocal next_keep_awake
+            now = time.monotonic()
+            if not cancelled() and now >= next_keep_awake:
+                next_keep_awake = now + 60
+                try:
+                    # Send both events in one remote shell invocation.
+                    adb("-s", target, "shell",
+                        "input keyevent KEYCODE_VOLUME_UP; input keyevent KEYCODE_VOLUME_DOWN")
+                    print("APSM scan keep-awake: volume up/down sent", flush=True)
+                except Exception as exc:
+                    print(f"APSM scan keep-awake failed: {exc}", flush=True)
+            return session.call(tx, payload)
+        return _scan(seed, scan_call, progress, cancelled, on_source, session.recover)
     finally:
         try:
             if mask_attempted:
