@@ -7,6 +7,7 @@ function detach(){if(rfb){rfb.disconnect();rfb=null}token=null}
 async function startMirror(){const b=$("remoteStart");if(b.disabled)return;b.disabled=true;$("remotePanel").open=true;try{detach();msg("Starting scrcpy…");const s=await post("/api/remote/start",{size:Number($("remoteSize").value),bitrate:Number($("remoteRate").value),fps:Number($("remoteFps").value)});token=s.token;const u=new URL("/remote-stream",location.href);u.protocol=location.protocol==="https:"?"wss:":"ws:";u.searchParams.set("token",token);rfb=new RFB($("remoteScreen"),u.href);rfb.scaleViewport=true;rfb.addEventListener("connect",()=>msg("Mirror connected"));rfb.addEventListener("disconnect",()=>msg("Mirror disconnected"));}catch(e){msg(e.message)}finally{b.disabled=false}}
 $("remoteStart").onclick=startMirror;
 window.apsmStartMirror=startMirror;
+window.apsmDetachMirror=()=>{detach();msg("Projector disconnected")};
 $("remoteStop").onclick=async()=>{try{await post("/api/remote/stop");detach();msg("Stopped")}catch(e){msg(e.message)}};
 $("remoteFull").onclick=()=> $("remoteScreen").requestFullscreen().catch(e=>msg(e.message));
 $("remoteShot").onclick=async()=>{try{const r=await post("/api/remote/screenshot",{token});msg("Saved /config/screenshots/"+r.file)}catch(e){msg(e.message)}};

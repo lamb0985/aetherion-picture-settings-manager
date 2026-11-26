@@ -377,6 +377,29 @@ def connect():
     finally:
         ADB_LOCK.release()
 
+@app.post("/api/connection/disconnect")
+def disconnect():
+    global REMOTE_TOKEN, BULK_PLAN
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress; wait for completion"),409
+    try:
+        target=endpoint()
+        if remote.target==target:
+            remote.stop()
+            REMOTE_TOKEN=None
+        BULK_PLAN=None
+        adb("disconnect",target)
+        connected=adb("devices").splitlines()
+        if any(line.split() and line.split()[0]==target for line in connected):
+            raise ValueError("ADB still lists the selected projector")
+        diagnostic("ADB","Disconnected selected projector: "+target)
+        return jsonify(status="disconnected")
+    except Exception as exc:
+        diagnostic("Errors","Disconnect: "+str(exc))
+        return jsonify(error=str(exc)),503
+    finally:
+        ADB_LOCK.release()
+
 BULK = {"status":"idle","done":0,"total":0,"results":[]}
 BULK_CANCEL=threading.Event()
 BULK_PLAN=None

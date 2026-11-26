@@ -197,7 +197,10 @@ $("import").onclick=async()=>{
   await refreshDevices();$("message").textContent="Snapshot imported";$("message").className="ok";
  }catch(e){$("message").textContent=e.message;$("message").className="error"}finally{b.disabled=false}
 };
+let connectionBusy=false;
 $("connect").onclick=async()=>{
+ if(connectionBusy||scanBusy||bulkBusy)return;
+ connectionBusy=true;$("disconnect").disabled=true;
  const b=$("connect");b.disabled=true;$("connection").textContent="Checking…";
  try{
   if(writing)throw Error("Wait for current adjustment to finish");
@@ -215,12 +218,40 @@ $("connect").onclick=async()=>{
   if(window.apsmStartMirror)await window.apsmStartMirror();
   else $("remoteMessage").textContent="Remote module unavailable; use Start mirror after it loads.";
   await setLive(true);
- }catch(e){$("connection").textContent="Connection unavailable";$("connection").className="status error";$("context").textContent=e.message}finally{b.disabled=false}
+ }catch(e){$("connection").textContent="Connection unavailable";$("connection").className="status error";$("context").textContent=e.message}finally{connectionBusy=false;b.disabled=scanBusy||bulkBusy;$("disconnect").disabled=scanBusy||bulkBusy}
 };
 
 
 let registry={devices:[],active:null}, editing=null;
 async function api(path,body){const r=await fetch(path,body===undefined?{}:{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.error||"Request failed");return v}
+$("disconnect").onclick=async()=>{
+ if(connectionBusy||scanBusy||bulkBusy||writing)return;
+ connectionBusy=true;
+ $("connect").disabled=true;$("disconnect").disabled=true;
+ try{
+  epoch++;live=null;liveSignature="";dragging=false;$("liveEdit").checked=false;
+  for(let i=0;reading&&i<200;i++)await new Promise(r=>setTimeout(r,25));
+  if(reading)throw Error("Live read still busy; try again");
+  await api("/api/connection/disconnect",{});
+  if(window.apsmDetachMirror)window.apsmDetachMirror();
+  clearConnection();
+  $("connection").textContent="Disconnected";
+  $("context").textContent="Projector disconnected. Stored snapshots remain available.";
+  $("liveScope").textContent="Stored snapshots — read-only";
+  $("liveMessage").textContent="";
+  invalidateBulk();
+  await load();
+ }catch(e){
+  $("connection").textContent="Disconnect unavailable";
+  $("connection").className="status error";
+  $("context").textContent=e.message;
+  for(const id of ["signal","profile","dbSource"])$(id).disabled=false;
+  $("liveScope").textContent="Stored snapshots — read-only";
+  render();
+ }finally{
+  connectionBusy=false;$("connect").disabled=scanBusy||bulkBusy;$("disconnect").disabled=scanBusy||bulkBusy;
+ }
+};
 function fillDevice(d){editing=d?.id||null;$("deviceName").value=d?.name||"";$("deviceHost").value=d?.host||"";$("devicePort").value=d?.port||""}
 async function refreshDevices(){registry=await api("/api/devices");$("device").replaceChildren();option($("device"),"","Select device");for(const d of registry.devices)option($("device"),d.id,d.name+" · "+d.host+":"+d.port);$("device").value=registry.active||"";fillDevice(registry.devices.find(d=>d.id===registry.active));$("dbSource").replaceChildren();option($("dbSource"),"","Latest snapshot");for(const s of registry.sources)option($("dbSource"),s.source,s.name??("Source "+s.source));await load()}
 function clearConnection(){epoch++;live=null;liveSignature="";$("liveEdit").checked=false;for(const id of ["signal","profile","dbSource"])$(id).disabled=false;$("connection").textContent="Not checked";$("connection").className="status";$("context").textContent="No live status requested."}
@@ -231,14 +262,14 @@ $("dbSource").onchange=()=>load().catch(e=>$("message").textContent=e.message);
 $("scan").onclick=async()=>{if(!confirm("Scan all supported profiles on the current source? Picture modes and calibration selectors will temporarily change. Do not change inputs or settings during the scan."))return;try{await api("/api/scan",{});await pollScan()}catch(e){$("scanMessage").textContent=e.message}};
 $("cancelScan").onclick=()=>api("/api/scan/cancel",{}).catch(e=>$("scanMessage").textContent=e.message);
 let lastScan="";
-async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","import"])$(id).disabled=busy||bulkBusy;$("cancelScan").disabled=!busy;$("openScan").textContent=busy?"Scan · "+s.done+"/"+s.total:"Scan";$("openScan").classList.toggle("active",busy);if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
+async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","disconnect","import"])$(id).disabled=busy||bulkBusy||connectionBusy;$("cancelScan").disabled=!busy;$("openScan").textContent=busy?"Scan · "+s.done+"/"+s.total:"Scan";$("openScan").classList.toggle("active",busy);if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
 refreshDevices().then(pollScan).then(()=>{const connect=()=>{if(registry.active&&!scanBusy)$("connect").click()};if(document.readyState==="complete")connect();else window.addEventListener("load",connect,{once:true})}).catch(e=>$("message").textContent=e.message);
 setInterval(pollScan,2000);
 
 $("rawToggle").onchange=()=>document.body.classList.toggle("show-raw",$("rawToggle").checked);
 
 
-$("liveEdit").onchange=()=>setLive($("liveEdit").checked).catch(e=>$("liveMessage").textContent=e.message);
+$("liveEdit").onchange=()=>{if(connectionBusy){$("liveEdit").checked=false;return}setLive($("liveEdit").checked).catch(e=>$("liveMessage").textContent=e.message)};
 setInterval(syncLive,1000);
 
 // Dialogs retain existing controls and state; closing does not cancel a scan.

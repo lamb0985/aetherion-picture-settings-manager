@@ -68,6 +68,23 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(result.json["context"]["source"], 5)
             self.assertEqual(adb.call_count, 2)
 
+    def test_disconnect_selected_projector(self):
+        target="192.0.2.1:12345"
+        with patch.object(manager,"endpoint",return_value=target), patch.object(manager.remote,"target",target), patch.object(manager.remote,"stop") as stop, patch.object(manager,"REMOTE_TOKEN","token"), patch.object(manager,"BULK_PLAN",{"token":"preview"}), patch.object(manager,"adb",side_effect=["disconnected","List of devices attached\n192.0.2.2:5555 device\n"]) as adb:
+            result=self.client.post("/api/connection/disconnect",json={})
+            self.assertEqual(result.status_code,200,result.json)
+            stop.assert_called_once()
+            self.assertEqual(adb.call_args_list[0].args,("disconnect",target))
+            self.assertEqual(adb.call_args_list[1].args,("devices",))
+            self.assertIsNone(manager.REMOTE_TOKEN)
+            self.assertIsNone(manager.BULK_PLAN)
+
+    def test_disconnect_busy(self):
+        with manager.ADB_LOCK, patch.object(manager,"adb") as adb:
+            result=self.client.post("/api/connection/disconnect",json={})
+            self.assertEqual(result.status_code,409)
+            adb.assert_not_called()
+
 class ParcelTests(unittest.TestCase):
     def test_decode(self):
         obj = {"msg": {"source": {"value":5}}}
