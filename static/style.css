@@ -128,3 +128,15 @@ main:has(.unified-workspace){width:100%;max-width:none}
  .unified-workspace #rows.mirror-aligned{margin-top:var(--mirror-offset,0px);min-height:var(--mirror-height,0px);display:flex;flex-direction:column}
  .unified-workspace #rows.mirror-aligned>.group:last-child{flex:1 0 auto}
 }
+
+/* Shared control baseline; connection details occupy their own line. */
+.header-device .device-toolbar{display:flex;align-items:flex-end;column-gap:6px;row-gap:5px}
+.header-device .device-toolbar>label{flex:1 1 85px;min-width:85px;width:auto}
+.header-device .device-toolbar>label:first-child{flex:1.7 1 145px;min-width:145px}
+.header-device .device-toolbar>label:has(#devicePort){flex:0 1 80px;min-width:65px;max-width:80px}
+.header-device .device-buttons,.header-device .header-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:nowrap}
+.header-device .header-actions{margin-left:auto}
+.header-device .device-toolbar button,.header-device .device-toolbar input,.header-device .device-toolbar select{height:32px;white-space:nowrap;line-height:20px}
+.header-device .header-actions .status{white-space:nowrap;margin:0 2px}
+.header-device .connection-inline{flex:1 0 100%;flex-wrap:wrap;min-width:0}
+@media(max-width:700px){.header-device .header-actions{margin-left:0;flex-wrap:wrap}.header-device .device-toolbar>label:first-child{flex-basis:100%}}
