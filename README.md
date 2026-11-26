@@ -30,9 +30,10 @@ services:
     image: lamb0985/aetherion-picture-settings-manager:latest
     container_name: aetherion-picture-settings-manager
     restart: unless-stopped
-    ports:
-      - "5055:5055"
+    network_mode: host
     environment:
+      PUID: "1000"
+      PGID: "1000"
       TZ: America/New_York
     volumes:
       - /path/to/config:/config
@@ -43,11 +44,14 @@ services:
 | Configuration | Description |
 | --- | --- |
 | TZ | Timezone; defaults to America/New_York |
-| 5055:5055 | Host and container WebUI ports |
+| PUID / PGID | Numeric runtime user and group IDs (default 1000 each); no Compose user directive needed |
+| network_mode: host | Host networking; WebUI listens directly on TCP 5055 |
 | /config | Persistent SQLite database (apsm.db), legacy catalog and authorized ADB keys (.android) |
 | /backups | Reserved persistent calibration backup directory |
 | /logs | Reserved persistent application log directory |
 | ADB_HOST / ADB_PORT | Optional legacy initialization variables; saved WebUI devices take precedence |
+
+Set PUID and PGID to your host account IDs. Ensure the existing three bind mounts are writable by those IDs before deployment; startup deliberately does not recursively change ownership or permissions. For a fresh deployment, create the host directories with the desired ownership first. Host networking exposes the WebUI on the host directly; keep it on a trusted network.
 
 Deploy or update:
 

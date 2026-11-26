@@ -3,9 +3,10 @@ services:
     image: lamb0985/aetherion-picture-settings-manager:latest
     container_name: aetherion-picture-settings-manager
     restart: unless-stopped
-    ports:
-      - "5055:5055"
+    network_mode: host
     environment:
+      PUID: "1000"
+      PGID: "1000"
       TZ: America/New_York
     volumes:
       - /path/to/config:/config
