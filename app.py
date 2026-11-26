@@ -501,14 +501,22 @@ def cancel_scan():
 def start_scan():
     if not ADB_LOCK.acquire(blocking=False):
         return jsonify(error="ADB operation in progress"),409
+    mirror_locked=False
     try:
-        remote.stop()
         d=devices.active_device(CONFIG)
         if not d: raise ValueError("Save a device first")
         target=devices.address(d["host"],d["port"])
         seed=devices.snapshot(CONFIG,d["id"])
         if not seed.get("profiles"):
             raise ValueError("Import a discovery catalog first")
+        if remote.running():
+            if remote.target != target:
+                raise ValueError("Mirror is connected to a different projector")
+            try:
+                mirror_locked=remote.set_view_only(True)
+            except Exception as exc:
+                remote.stop()
+                diagnostic("Errors","Mirror input lock failed; mirror stopped: "+str(exc))
         CANCEL.clear()
         SCAN.update(status="running",done=0,error=None,started=time.time(),device=d["id"],source=None,source_name=None,signal=None,mode=None)
         diagnostic("Scanner","Scan started")
@@ -532,10 +540,23 @@ def start_scan():
                 SCAN.update(status="failed",error=str(exc))
                 diagnostic("Errors","Scan: "+str(exc))
             finally:
-                ADB_LOCK.release()
+                try:
+                    if mirror_locked:
+                        remote.set_view_only(False)
+                except Exception as exc:
+                    remote.stop()
+                    diagnostic("Errors","Mirror input unlock failed; restart mirror: "+str(exc))
+                finally:
+                    ADB_LOCK.release()
         threading.Thread(target=worker,daemon=True).start()
     except Exception as exc:
-        ADB_LOCK.release()
+        try:
+            if mirror_locked:
+                remote.set_view_only(False)
+        except Exception:
+            remote.stop()
+        finally:
+            ADB_LOCK.release()
         return jsonify(error=str(exc)),400
     return jsonify(dict(SCAN)),202
 

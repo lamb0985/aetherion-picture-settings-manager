@@ -11,3 +11,23 @@ $("remoteStop").onclick=async()=>{try{await post("/api/remote/stop");detach();ms
 $("remoteFull").onclick=()=> $("remoteScreen").requestFullscreen().catch(e=>msg(e.message));
 $("remoteShot").onclick=async()=>{try{const r=await post("/api/remote/screenshot",{token});msg("Saved /config/screenshots/"+r.file)}catch(e){msg(e.message)}};
 for(const b of document.querySelectorAll("[data-key]"))b.onclick=async()=>{b.disabled=true;try{const result=await post("/api/remote/key",{key:b.dataset.key,token});if(result.source_name)msg("Switched to "+result.source_name)}catch(e){msg(e.message)}finally{b.disabled=false}};
+
+// Keep the existing VNC connection alive; reflect the server-side scan input lock.
+let scanInputLocked=false, scanPollBusy=false;
+async function updateScanInput(){
+  if(scanPollBusy)return;
+  scanPollBusy=true;
+  try{
+    const response=await fetch("/api/scan",{cache:"no-store"});
+    if(!response.ok)return;
+    const state=await response.json();
+    const locked=state.status==="running";
+    if(rfb)rfb.viewOnly=locked;
+    for(const button of document.querySelectorAll("[data-key]"))button.disabled=locked;
+    if(locked!==scanInputLocked){
+      scanInputLocked=locked;
+      if(rfb)msg(locked?"Mirror connected · scan running · view only":"Mirror connected · controls enabled");
+    }
+  }catch(e){}finally{scanPollBusy=false;}
+}
+setInterval(updateScanInput,1000);

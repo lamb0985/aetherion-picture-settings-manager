@@ -69,6 +69,20 @@ class Remote:
                 self.stop()
                 raise
 
+    def set_view_only(self, enabled):
+        with self.lock:
+            if not self.running():
+                return False
+            flag = "viewonly" if enabled else "noviewonly"
+            args = ["x11vnc", "-display", ":93"]
+            subprocess.check_output(args + ["-sync", "-R", flag],
+                                    stderr=subprocess.STDOUT, text=True, timeout=5)
+            result = subprocess.check_output(args + ["-Q", "viewonly"],
+                                             stderr=subprocess.STDOUT, text=True, timeout=5)
+            if f"ans=viewonly:{int(enabled)}" not in result:
+                raise RuntimeError("Cannot verify mirror input lock")
+            return True
+
     def touch(self):
         self.expires=time.monotonic()+90
 
