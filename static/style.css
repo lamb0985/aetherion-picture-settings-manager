@@ -12,7 +12,7 @@
 
 .setting-value input[type="range"]{width:clamp(90px,23vw,220px);accent-color:var(--accent);padding:0}.setting-value select{max-width:190px}.setting-value input[type="range"]:disabled{opacity:.5}#liveScope,#liveMessage{margin:4px 0;text-align:right}
 
-.all-sources{color:var(--yellow)}#liveMessage{color:var(--yellow);min-height:1.5em}
+#liveMessage{color:var(--yellow);min-height:1.5em}
 
 /* Native Aetherion menu: centered header, rounded stacked tiles and inset controls. */
 .picture-content #rows{max-width:520px;width:100%;margin-inline:auto}
@@ -155,3 +155,5 @@ main:has(.unified-workspace){width:100%;max-width:none}
 .console-form{display:flex;gap:6px;min-width:0}
 .console-form input{flex:1;min-width:0;font-family:ui-monospace,monospace}
 .diag-Scanner{color:#8be9fd}.diag-ADB{color:#ffb86c}.diag-Middleware{color:var(--muted)}.diag-Errors{color:var(--red)}.diag-Bulk{color:var(--accent)}
+
+.sidebar-tools{display:flex;flex-direction:column;gap:4px;min-width:0;background:#21222c;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px}.sidebar-tools button{text-align:left;width:100%;border-color:transparent}.sidebar-tools button:hover,.sidebar-tools button.active{border-color:var(--accent)}.help-content{max-height:65vh;overflow:auto;padding:0 8px}.help-content h3{color:var(--accent);font-size:14px;margin:12px 0 4px}.help-content p{margin:0 0 10px;color:var(--fg)}

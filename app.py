@@ -17,7 +17,7 @@ import socket
 import secrets
 from datetime import datetime, timezone
 from werkzeug.exceptions import BadRequest
-from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name, LIVE_RANGES, LIVE_ENUMS, SIGNALS
+from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SOURCE_NAMES, source_name, LIVE_RANGES, LIVE_ENUMS, SIGNALS, NATIVE_READ_KEYS, parameter_inventory, picture_snapshot
 import device_manager as devices
 import scanner
 import bulk
@@ -216,16 +216,7 @@ def picture_call(target, tx, payload):
     return decode_parcel(adb("-s",target,"shell",f"service call {SERVICE} {tx} s16 '{encoded}'"))
 
 # Read only known picture parameters; never change selectors during polling.
-LIVE_READ_KEYS = set(LIVE_RANGES) | set(LIVE_ENUMS) | set(CONTEXT_KEYS) | {
-    "high_dynamic","enhanced_black_level","dark_detail","gamma_adjust","gamma",
-    "active_contrast","high_brightness","hdr_enhancer","hdr_enhance",
-    "temp_wb","color_space","dynamic_color_enhancer","dynamic_color_enhance",
-    "dynamic_color","gradient_smooth","smooth_gradient","gradation_smooth",
-    "ai_sr","nr","mpeg_nr","iris_mode","color","tint","motion_enhancement",
-    "20p_wb_point","20p_wb_red","20p_wb_green","20p_wb_blue",
-    "gamma_calibration_level","gamma_calibration_gain",
-    "color_tuner_clr","color_tuner_hue","color_tuner_sat","color_tuner_bri",
-}
+LIVE_READ_KEYS = NATIVE_READ_KEYS
 
 @app.post("/api/live/state")
 def live_state():
@@ -240,10 +231,10 @@ def live_state():
         if adb("-s",target,"get-state").strip()!="device":
             raise ValueError("Connect the projector first")
         before=live_context(target)
-        requested=p.get("keys",[])
-        if not isinstance(requested,list) or any(not isinstance(k,str) or k not in LIVE_READ_KEYS for k in requested):
-            raise ValueError("Invalid live parameter list")
-        keys=sorted(set(requested)|set(CONTEXT_KEYS)|{"pq_apply"})
+        seed=devices.snapshot(CONFIG,d["id"],before["source"])
+        if not seed.get("profiles"):
+            seed=devices.snapshot(CONFIG,d["id"])
+        keys=parameter_inventory(seed)
         records={}
         for offset in range(0,len(keys),16):
             chunk=keys[offset:offset+16]
@@ -252,9 +243,11 @@ def live_state():
         after=live_context(target)
         if before!=after or any(records.get(k,{}).get("value")!=after[k] for k in CONTEXT_KEYS):
             return jsonify(error="Projector context changed during read; retrying"),409
+        devices.merge_live(CONFIG,d["id"],after,records)
         return jsonify(device=d["id"],context=after,source_name=source_name(after["source"]),
                        signal_name=SIGNALS.get(after["signal_dr_type"],"Signal "+str(after["signal_dr_type"])),
-                       modes=MODES.get(after["signal_dr_type"],()),settings=records)
+                       modes=MODES.get(after["signal_dr_type"],()),settings=records,
+                       missing=sorted(set(keys)-set(records)))
     except Exception as exc:
         return jsonify(error=str(exc)),503
     finally:
@@ -337,6 +330,7 @@ def catalog():
     d = devices.active_device(CONFIG)
     source = request.args.get("source", type=int)
     data = devices.snapshot(CONFIG, d["id"], source) if d else read_catalog()
+    data=picture_snapshot(data)
     # The public-facing API does not return local filesystem paths or ADB addresses.
     return jsonify(profiles=data["profiles"], parameter_candidates=data.get("parameter_candidates", {}),
                    menu_enumerations=data.get("menu_enumerations", {}), summary=summarize(data))
@@ -346,7 +340,7 @@ def upload():
     if request.headers.get("Sec-Fetch-Site") == "cross-site":
         return jsonify(error="Cross-site request denied"), 403
     try:
-        data = validate(request.get_json())
+        data = picture_snapshot(validate(request.get_json()))
     except (ValueError, BadRequest, TypeError, AttributeError, KeyError) as exc:
         return jsonify(error=str(exc)), 400
     d = devices.active_device(CONFIG)

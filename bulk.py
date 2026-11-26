@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from schema import CONTEXT_KEYS, MODES, LIVE_RANGES, LIVE_ENUMS, INDEXED, VERIFIED_SETTERS, SIGNALS
+from schema import CONTEXT_KEYS, MODES, LIVE_RANGES, LIVE_ENUMS, INDEXED, VERIFIED_SETTERS, SIGNALS, picture_key
 
 # Indexed setters are deliberately not enabled until independently verified.
 INDEX_KEYS={k:(section,selector,count) for section,(selector,count,keys) in INDEXED.items() for k in keys}
@@ -15,7 +15,7 @@ def inventory(snapshot):
     for sid,g in snapshot.get("profiles",{}).items():
         for mid,p in g.get("profiles",{}).items():
             for key,item in p.get("settings",{}).items():
-                if key in EXCLUDED or key in INDEX_KEYS or not isinstance(item,dict): continue
+                if not picture_key(key) or key in EXCLUDED or key in INDEX_KEYS or not isinstance(item,dict): continue
                 found.setdefault(key,{"key":key,"count":0,"enabled":key in WRITABLE,"reason":"" if key in WRITABLE else "Setter not validated"})["count"]+=1
             for section,group in p.get("indexed",{}).items():
                 keys=set(k for e in group.get("values",{}).values() for k in e.get("settings",{}))

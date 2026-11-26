@@ -4,7 +4,7 @@ import logging
 log = logging.getLogger('apsm.scanner')
 import time
 from cli_transport import CliSession
-from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SIGNALS, EXTRA_SCAN_KEYS
+from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SIGNALS, parameter_inventory, picture_snapshot
 
 def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
     session = CliSession(target)
@@ -76,14 +76,9 @@ def _scan(seed, call, progress, cancelled, on_source, recover):
         raise ValueError("Incomplete initial context")
     if on_source is not None:
         on_source(original["source"])
+    seed=picture_snapshot(seed)
     candidates=seed.get("parameter_candidates",{})
-    keys=sorted({k for group in candidates.values() if isinstance(group,list) for k in group if isinstance(k,str) and k.replace("_","").isalnum()} | set(CONTEXT_KEYS) | {"pq_apply"})
-    for group in seed.get("profiles",{}).values():
-        for p in group.get("profiles",{}).values():
-            keys=sorted(set(keys)|{k for k in p.get("settings",{}) if k.replace("_","").isalnum()})
-    if len(keys)<=4:
-        raise ValueError("Import the discovery catalog once to supply the known parameter list")
-    keys=sorted(set(keys)|set(EXTRA_SCAN_KEYS))
+    keys=parameter_inventory(seed)
     data={"original_context":original,"parameter_candidates":candidates,"menu_enumerations":seed.get("menu_enumerations",{}),"profiles":{}}
     modes={}
     selectors={}
@@ -153,6 +148,9 @@ def _scan(seed, call, progress, cancelled, on_source, recover):
                     selectors.pop((sid,mid),None)
                 group["profiles"][str(mid)]=profile
                 done+=1
+                missing=sorted(set(keys)-set(records))
+                indexed_count=sum(len(e["settings"]) for section in profile["indexed"].values() for e in section["values"].values())
+                log.info("Profile %s/%s: %s/%s general, %s indexed; not returned: %s",sid,mid,len(records),len(keys),indexed_count,", ".join(missing) or "none")
                 progress(done,sid,mid)
     finally:
         recover()

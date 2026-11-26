@@ -94,3 +94,23 @@ def snapshot(root, ident, source=None):
 def sources(root, ident):
     with closing(db(root)) as c:
         return [dict(x) for x in c.execute("SELECT source,captured FROM snapshots WHERE device=? ORDER BY source",(ident,))]
+
+def merge_live(root, ident, context, records):
+    """Refresh only the existing matching profile; keep indexed tables intact."""
+    from schema import picture_snapshot
+    with closing(db(root)) as c,c:
+        c.execute("BEGIN IMMEDIATE")
+        row=c.execute("SELECT data FROM snapshots WHERE device=? AND source=?",(ident,context["source"])).fetchone()
+        if not row:
+            return
+        data=picture_snapshot(json.loads(row[0]))
+        profile=data.get("profiles",{}).get(str(context["signal_dr_type"]),{}).get("profiles",{}).get(str(context["pic_mode"]))
+        if not profile:
+            return
+        changed=False
+        for key,value in records.items():
+            if profile["settings"].get(key)!=value:
+                profile["settings"][key]=value
+                changed=True
+        if changed:
+            c.execute("UPDATE snapshots SET data=? WHERE device=? AND source=?",(json.dumps(data),ident,context["source"]))
