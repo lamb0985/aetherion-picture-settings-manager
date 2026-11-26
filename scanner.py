@@ -67,9 +67,8 @@ def _scan(seed, call, progress, cancelled, on_source, recover):
         result=call(2,{key:value})
         if result.get("status")!=0 or result.get("result")!=0:
             raise ValueError(f"Selector rejected: {key}: {result}")
-        # Keep the proven settling delay for calibration selectors for now.
-        if key not in ("signal_dr_type","pic_mode"):
-            time.sleep(.15)
+        # Zero-delay selector reads matched the 150 ms baseline on hardware.
+        # Keep immediate context and selector readback checks.
     def context():
         return {k:getter["value"] for k,getter in get(CONTEXT_KEYS).items() if k in CONTEXT_KEYS}
     original=context()
