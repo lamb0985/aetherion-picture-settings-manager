@@ -1,5 +1,6 @@
 """Source-aware offline catalog and explicit, read-only projector status."""
 import ipaddress
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from collections import deque
 import json
@@ -376,6 +377,43 @@ def discover_adb_ports(host):
             continue
     return sorted(ports)
 
+def probe_wireless_adb(host,port):
+    """Identify Android wireless ADB by its STLS response to a CNXN packet.
+    No pairing, authentication, shell command or setting write is performed.
+    """
+    payload=b"host::\x00"
+    command=int.from_bytes(b"CNXN","little")
+    packet=struct.pack("<6I",command,0x01000001,4096,len(payload),sum(payload),command^0xffffffff)+payload
+    try:
+        with socket.create_connection((host,port),timeout=.25) as conn:
+            conn.settimeout(.75)
+            conn.sendall(packet)
+            header=bytearray()
+            while len(header)<24:
+                chunk=conn.recv(24-len(header))
+                if not chunk: return False
+                header.extend(chunk)
+            cmd,arg0,arg1,size,checksum,magic=struct.unpack("<6I",header)
+            return (cmd==int.from_bytes(b"STLS","little") and
+                    magic==(cmd^0xffffffff) and arg0==0x01000000 and
+                    arg1==0 and size==0 and checksum==0)
+    except OSError:
+        return False
+
+def scan_wireless_adb_ports(host, first=32768, last=60999):
+    # Bounded batches; only the selected IP and Android's usual ephemeral range.
+    host=str(ipaddress.ip_address(host))
+    matches=[]
+    with ThreadPoolExecutor(max_workers=192) as pool:
+        for start in range(first,last+1,2048):
+            ports=range(start,min(start+2048,last+1))
+            for port,matched in zip(ports,pool.map(lambda p:probe_wireless_adb(host,p),ports)):
+                if matched:
+                    matches.append(port)
+                    diagnostic("ADB",f"Verified wireless ADB protocol on port {port}")
+            diagnostic("ADB",f"TCP discovery: {min(start+2048,last+1)-first}/{last-first+1} ports checked")
+    return matches
+
 @app.post("/api/connection/discover")
 def discover_connection():
     if not ADB_LOCK.acquire(blocking=False):
@@ -388,17 +426,25 @@ def discover_connection():
         host=d["host"]
         diagnostic("ADB","Discovering wireless debugging port for "+host)
         ports=[]
-        for attempt in range(3):
-            ports=discover_adb_ports(host)
-            if ports: break
-            if attempt<2: time.sleep(1)
+        method="mDNS"
+        try:
+            for attempt in range(3):
+                ports=discover_adb_ports(host)
+                if ports: break
+                if attempt<2: time.sleep(1)
+        except (ValueError,OSError,subprocess.SubprocessError) as exc:
+            diagnostic("ADB","mDNS unavailable: "+str(exc))
         if not ports:
-            raise ValueError("No wireless debugging connection advertised for this IP. Check Wireless debugging and mDNS connectivity, or enter the port manually.")
+            method="TCP"
+            diagnostic("ADB","No mDNS match; scanning TCP ports 32768–60999 on "+host)
+            ports=scan_wireless_adb_ports(host)
+        if not ports:
+            raise ValueError("No wireless ADB port found. Check Wireless debugging and network reachability, or enter the port manually.")
         if len(ports)!=1:
             raise ValueError("Multiple wireless debugging ports advertised: "+", ".join(map(str,ports))+". Verify the port on the projector.")
         port=ports[0]
-        diagnostic("ADB",f"Discovered wireless debugging port {port} for {host}")
-        return jsonify(device=d["id"],host=host,port=port)
+        diagnostic("ADB",f"Discovered wireless debugging port {port} for {host} via {method}")
+        return jsonify(device=d["id"],host=host,port=port,method=method)
     except Exception as exc:
         diagnostic("Errors","Wireless ADB discovery: "+str(exc))
         return jsonify(error=str(exc)),400

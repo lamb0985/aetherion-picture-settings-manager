@@ -211,7 +211,7 @@ $("discoverPort").onclick=async()=>{
   const result=await api("/api/connection/discover",{device:d.id});
   if(registry.active!==d.id||editing!==d.id||$("deviceHost").value.trim()!==d.host)throw Error("Selected device changed");
   $("devicePort").value=result.port;
-  $("deviceMessage").textContent="Found ADB port "+result.port+" — Save & select, then Connect / refresh.";
+  $("deviceMessage").textContent="Found ADB port "+result.port+" via "+result.method+" — Save & select, then Connect / refresh.";
  }catch(e){$("deviceMessage").textContent=e.message}
  finally{connectionBusy=false;$("discoverPort").disabled=scanBusy||bulkBusy;if(wasLive)await setLive(true)}
 };

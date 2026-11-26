@@ -99,6 +99,35 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(result.json["port"],41367)
             save.assert_not_called()
 
+    def test_discovery_tcp_fallback(self):
+        device={"id":"projector","host":"192.0.2.1","port":12345}
+        with patch.object(manager.devices,"active_device",return_value=device), patch.object(manager,"discover_adb_ports",return_value=[]), patch.object(manager.time,"sleep"), patch.object(manager,"scan_wireless_adb_ports",return_value=[41367]) as scan:
+            result=self.client.post("/api/connection/discover",json={"device":"projector"})
+            self.assertEqual(result.status_code,200,result.json)
+            self.assertEqual(result.json["method"],"TCP")
+            self.assertEqual(result.json["port"],41367)
+            scan.assert_called_once_with("192.0.2.1")
+
+    def test_wireless_protocol_probe(self):
+        from unittest.mock import MagicMock
+        cmd=int.from_bytes(b"STLS","little")
+        header=struct.pack("<6I",cmd,0x01000000,0,0,0,cmd^0xffffffff)
+        conn=MagicMock()
+        conn.__enter__.return_value=conn
+        conn.recv.side_effect=[header[:8],header[8:]]
+        with patch.object(manager.socket,"create_connection",return_value=conn):
+            self.assertTrue(manager.probe_wireless_adb("192.0.2.1",41367))
+            self.assertEqual(conn.sendall.call_args.args[0][:4],b"CNXN")
+        conn.recv.side_effect=[b"HTTP/1.1 200 OK\r\n\r\n",b""]
+        with patch.object(manager.socket,"create_connection",return_value=conn):
+            self.assertFalse(manager.probe_wireless_adb("192.0.2.1",41367))
+
+    def test_scan_only_selected_ip(self):
+        with patch.object(manager,"probe_wireless_adb",side_effect=lambda host,port: host=="192.0.2.1" and port==40001) as probe:
+            self.assertEqual(manager.scan_wireless_adb_ports("192.0.2.1",40000,40002),[40001])
+            self.assertEqual(probe.call_count,3)
+            self.assertEqual({c.args for c in probe.call_args_list},{("192.0.2.1",p) for p in range(40000,40003)})
+
 class ParcelTests(unittest.TestCase):
     def test_decode(self):
         obj = {"msg": {"source": {"value":5}}}
