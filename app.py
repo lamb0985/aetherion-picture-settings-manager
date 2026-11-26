@@ -1,5 +1,7 @@
 """Source-aware offline catalog and explicit, read-only projector status."""
 import ipaddress
+import logging
+from collections import deque
 import json
 import os
 import re
@@ -29,6 +31,97 @@ CATALOG = CONFIG / "catalog.json"
 ADB_LOCK = threading.Lock()
 sock = Sock(app)
 REMOTE_TOKEN = None
+DIAG_LOG = deque(maxlen=1000)
+DIAG_LOCK = threading.Lock()
+DIAG_SEQ = 0
+
+def diagnostic(category, message):
+    global DIAG_SEQ
+    with DIAG_LOCK:
+        DIAG_SEQ += 1
+        DIAG_LOG.append({"id":DIAG_SEQ,"time":datetime.now().astimezone().strftime("%H:%M:%S"),
+                         "category":category,"message":str(message)[:2000]})
+
+class DiagnosticHandler(logging.Handler):
+    def emit(self, record):
+        diagnostic("Errors" if record.levelno >= logging.ERROR else "Scanner", record.getMessage())
+
+scan_logger = logging.getLogger("apsm.scanner")
+scan_logger.setLevel(logging.INFO)
+scan_logger.addHandler(DiagnosticHandler())
+
+@app.get("/api/diagnostics/logs")
+def diagnostic_logs():
+    with DIAG_LOCK:
+        rows = list(DIAG_LOG)
+    return jsonify(events=rows)
+
+@app.get("/api/diagnostics/middleware")
+def diagnostic_middleware():
+    # Read-only logcat runs independently of the picture-operation lock.
+    try:
+        target = endpoint()
+        raw = subprocess.check_output(
+            ["adb","-s",target,"logcat","-d","-t","500","-v","threadtime",
+             "-s","HISMW@video:V","HISMW@system:V","HISMW@dataoperator:W","HSPCore:W","libc:F"],
+            text=True, errors="replace", stderr=subprocess.STDOUT, timeout=4)
+        return jsonify(device=target, lines=[l[:1500] for l in raw.splitlines() if not l.startswith("---------")][-250:])
+    except Exception as exc:
+        return jsonify(error=str(exc)),503
+
+@app.post("/api/diagnostics/console")
+def diagnostic_console():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress; console locked"),409
+    try:
+        command=request.get_json().get("command","")
+        if not isinstance(command,str) or len(command)>4096:
+            raise ValueError("Invalid command")
+        command=command.strip()
+        target=endpoint()
+        if command in ("help","?"):
+            return jsonify(output="Commands: adb get-state, adb shell pidof vendor.vt.hs_av_service@1.0-service, adb shell getenforce, adb shell sm list-volumes all, get picture context, get bypass mask, get {JSON} (known picture getters only)")
+        allowed={
+            "adb get-state":["get-state"],
+            "adb shell pidof vendor.vt.hs_av_service@1.0-service":["shell","pidof","vendor.vt.hs_av_service@1.0-service"],
+            "adb shell getenforce":["shell","getenforce"],
+            "adb shell sm list-volumes all":["shell","sm","list-volumes","all"],
+        }
+        if command in allowed:
+            output=adb("-s",target,*allowed[command])
+        else:
+            if command=="get picture context":
+                payload={"cmd":"get_video_all","msg":{k:["value"] for k in (*CONTEXT_KEYS,"pq_apply","color_temp")}}
+            elif command=="get bypass mask":
+                payload={"get_value":"bypass_mask"}
+            elif command.startswith("get "):
+                payload=json.loads(command[4:])
+            else:
+                raise ValueError("Unsupported command; type help")
+            if payload=={"get_value":"bypass_mask"}:
+                from cli_transport import CliSession
+                cli=CliSession(target)
+                try:
+                    cli.start()
+                    result=cli.call(1,payload)
+                finally:
+                    cli.close()
+            elif (isinstance(payload,dict) and set(payload)=={"cmd","msg"} and payload["cmd"]=="get_video_all"
+                  and isinstance(payload["msg"],dict) and 0<len(payload["msg"])<=16
+                  and all(k in LIVE_READ_KEYS or k=="pq_apply" for k in payload["msg"])
+                  and all(isinstance(v,list) and v and all(x in ("value","range","state") for x in v) for v in payload["msg"].values())):
+                result=picture_call(target,1,payload)
+            else:
+                raise ValueError("Only known read-only picture getters are allowed")
+            output=json.dumps(result,indent=2)
+        diagnostic("ADB", "Console command completed: "+command[:200])
+        return jsonify(output=output[:24000])
+    except Exception as exc:
+        diagnostic("Errors","Console: "+str(exc))
+        return jsonify(error=str(exc)),400
+    finally:
+        ADB_LOCK.release()
+
 
 def read_catalog():
     d = devices.active_device(CONFIG)
@@ -343,15 +436,22 @@ def start_bulk():
         backup=folder/("bulk-"+datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")+".json")
         BULK_PLAN=None;BULK_CANCEL.clear()
         BULK.update(status="running",done=0,total=len(plan["rows"]),results=[],error=None,backup=backup.name)
+        diagnostic("Bulk", f"Bulk apply started: {BULK['total']} profiles")
         def progress(row):
+            diagnostic("Bulk", json.dumps(row,default=str))
             BULK["results"].append(row)
             BULK["done"]=len(BULK["results"])
         def worker():
             try:
                 bulk.run(lambda tx,p:picture_call(target,tx,p),lambda:live_context(target),plan["original"],plan["key"],plan["value"],plan["rows"],backup,progress,BULK_CANCEL.is_set)
                 BULK.update(status="complete")
-            except InterruptedError as exc: BULK.update(status="cancelled",error=str(exc))
-            except Exception as exc: BULK.update(status="failed",error=str(exc))
+                diagnostic("Bulk","Bulk apply completed")
+            except InterruptedError as exc:
+                BULK.update(status="cancelled",error=str(exc))
+                diagnostic("Bulk",str(exc))
+            except Exception as exc:
+                BULK.update(status="failed",error=str(exc))
+                diagnostic("Errors","Bulk: "+str(exc))
             finally: ADB_LOCK.release()
         threading.Thread(target=worker,daemon=True).start()
         return jsonify(dict(BULK)),202
@@ -411,19 +511,26 @@ def start_scan():
             raise ValueError("Import a discovery catalog first")
         CANCEL.clear()
         SCAN.update(status="running",done=0,error=None,started=time.time(),device=d["id"],source=None,source_name=None,signal=None,mode=None)
+        diagnostic("Scanner","Scan started")
+        def scan_progress(n,s,m):
+            SCAN.update(done=n,signal=s,mode=m)
+            diagnostic("Scanner",f"{n}/{SCAN['total']} | {SIGNALS[s]} | Mode {m}")
         def worker():
             try:
                 adb("connect",target)
                 if adb("-s",target,"get-state").strip()!="device":
                     raise ValueError("ADB not connected")
-                data=scanner.scan(target,seed,adb,decode_parcel,lambda n,s,m: SCAN.update(done=n,signal=s,mode=m),CANCEL.is_set,
+                data=scanner.scan(target,seed,adb,decode_parcel,scan_progress,CANCEL.is_set,
                                   on_source=lambda source: SCAN.update(source=source,source_name=source_name(source)))
                 devices.store(CONFIG,d["id"],validate(data))
                 SCAN.update(status="complete",summary=summarize(data))
+                diagnostic("Scanner","Scan complete; catalog stored")
             except InterruptedError as exc:
                 SCAN.update(status="cancelled",error=str(exc))
+                diagnostic("Scanner",str(exc))
             except Exception as exc:
                 SCAN.update(status="failed",error=str(exc))
+                diagnostic("Errors","Scan: "+str(exc))
             finally:
                 ADB_LOCK.release()
         threading.Thread(target=worker,daemon=True).start()

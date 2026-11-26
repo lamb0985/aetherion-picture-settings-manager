@@ -140,3 +140,18 @@ main:has(.unified-workspace){width:100%;max-width:none}
 .header-device .header-actions .status{white-space:nowrap;margin:0 2px}
 .header-device .connection-inline{flex:1 0 100%;flex-wrap:wrap;min-width:0}
 @media(max-width:700px){.header-device .header-actions{margin-left:0;flex-wrap:wrap}.header-device .device-toolbar>label:first-child{flex-basis:100%}}
+
+/* Full-width diagnostics aligned with the unified workspace. */
+.diagnostic-workspace{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;width:100%;min-width:0;margin-top:16px}
+.diagnostic-workspace .diagnostic-panel{margin:0;min-width:0;background:var(--panel)}
+.diagnostic-panel summary{padding:11px 14px;color:var(--accent);cursor:pointer;font-weight:600}
+.diagnostic-body{padding:0 12px 12px;min-width:0}
+.diagnostic-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.diagnostic-actions>span:first-child{margin-right:auto}
+.diagnostic-actions button,.diagnostic-actions select,.console-form button,.console-form input{height:32px;padding:5px 9px}
+.log-autoscroll{display:flex;flex-direction:row;align-items:center;min-width:0;gap:4px;font-size:12px}
+.diagnostic-output{margin:0 0 8px;background:#191a21;border:1px solid var(--line);border-radius:6px;padding:12px;height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace;color:var(--fg)}
+.log-output{height:260px;margin:0}
+.console-form{display:flex;gap:6px;min-width:0}
+.console-form input{flex:1;min-width:0;font-family:ui-monospace,monospace}
+.diag-Scanner{color:#8be9fd}.diag-ADB{color:#ffb86c}.diag-Middleware{color:var(--muted)}.diag-Errors{color:var(--red)}.diag-Bulk{color:var(--accent)}

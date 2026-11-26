@@ -1,5 +1,7 @@
 """Conservative scanner: only context and index selectors are written."""
 import json
+import logging
+log = logging.getLogger('apsm.scanner')
 import time
 from cli_transport import CliSession
 from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SIGNALS, EXTRA_SCAN_KEYS
@@ -29,9 +31,12 @@ def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
                     adb("-s", target, "shell",
                         "input keyevent KEYCODE_VOLUME_UP; input keyevent KEYCODE_VOLUME_DOWN")
                     print("APSM scan keep-awake: volume up/down sent", flush=True)
+                    log.info("Keep-awake: volume up/down sent")
                 except Exception as exc:
                     print(f"APSM scan keep-awake failed: {exc}", flush=True)
+                    log.error("Keep-awake failed: %s", exc)
             return session.call(tx, payload)
+        log.info("Bypass mask 2 verified; persistent CLI active")
         return _scan(seed, scan_call, progress, cancelled, on_source, session.recover)
     finally:
         try:
@@ -40,9 +45,11 @@ def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
                 session.call(2, {"bypass_mask":original_mask})
                 if session.call(1, {"get_value":"bypass_mask"}).get("bypass_mask") != original_mask:
                     raise ValueError("Bypass mask restoration failed")
+                log.info("Original bypass mask restored and verified")
         finally:
             session.close()
             print(f"APSM optimized scan elapsed: {time.monotonic()-started:.2f}s", flush=True)
+            log.info("Scan elapsed: %.2fs", time.monotonic()-started)
 
 def _scan(seed, call, progress, cancelled, on_source, recover):
     def get(keys):
