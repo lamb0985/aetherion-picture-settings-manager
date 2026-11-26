@@ -198,6 +198,23 @@ $("import").onclick=async()=>{
  }catch(e){$("message").textContent=e.message;$("message").className="error"}finally{b.disabled=false}
 };
 let connectionBusy=false;
+$("discoverPort").onclick=async()=>{
+ if(connectionBusy||scanBusy||bulkBusy||writing)return;
+ const d=registry.devices.find(d=>d.id===registry.active);
+ if(!d||editing!==d.id||$("deviceHost").value.trim()!==d.host){$("deviceMessage").textContent="Save and select the projector first";return}
+ connectionBusy=true;$("discoverPort").disabled=true;
+ const wasLive=isLive();epoch++;live=null;liveSignature="";$("liveEdit").checked=false;
+ try{
+  $("deviceMessage").textContent="Discovering wireless debugging port…";
+  for(let i=0;reading&&i<200;i++)await new Promise(r=>setTimeout(r,25));
+  if(reading)throw Error("Live read still busy; try again");
+  const result=await api("/api/connection/discover",{device:d.id});
+  if(registry.active!==d.id||editing!==d.id||$("deviceHost").value.trim()!==d.host)throw Error("Selected device changed");
+  $("devicePort").value=result.port;
+  $("deviceMessage").textContent="Found ADB port "+result.port+" — Save & select, then Connect / refresh.";
+ }catch(e){$("deviceMessage").textContent=e.message}
+ finally{connectionBusy=false;$("discoverPort").disabled=scanBusy||bulkBusy;if(wasLive)await setLive(true)}
+};
 $("connect").onclick=async()=>{
  if(connectionBusy||scanBusy||bulkBusy)return;
  connectionBusy=true;$("disconnect").disabled=true;
@@ -262,7 +279,7 @@ $("dbSource").onchange=()=>load().catch(e=>$("message").textContent=e.message);
 $("scan").onclick=async()=>{if(!confirm("Scan all supported profiles on the current source? Picture modes and calibration selectors will temporarily change. Do not change inputs or settings during the scan."))return;try{await api("/api/scan",{});await pollScan()}catch(e){$("scanMessage").textContent=e.message}};
 $("cancelScan").onclick=()=>api("/api/scan/cancel",{}).catch(e=>$("scanMessage").textContent=e.message);
 let lastScan="";
-async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","disconnect","import"])$(id).disabled=busy||bulkBusy||connectionBusy;$("cancelScan").disabled=!busy;$("openScan").textContent=busy?"Scan · "+s.done+"/"+s.total:"Scan";$("openScan").classList.toggle("active",busy);if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
+async function pollScan(){try{const s=await api("/api/scan");$("scanProgress").max=s.total;$("scanProgress").value=s.done;$("scanMessage").textContent=s.status+(s.source_name?" · "+s.source_name:"")+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"");const busy=s.status==="running";if(busy!==scanBusy){scanBusy=busy;epoch++;live=null;liveSignature="";dragging=false;if(isLive())render()}for(const id of ["scan","saveDevice","newDevice","device","connect","disconnect","discoverPort","import"])$(id).disabled=busy||bulkBusy||connectionBusy;$("cancelScan").disabled=!busy;$("openScan").textContent=busy?"Scan · "+s.done+"/"+s.total:"Scan";$("openScan").classList.toggle("active",busy);if(s.status==="complete"&&lastScan!=="complete")await refreshDevices();lastScan=s.status}catch(e){$("scanMessage").textContent=e.message}}
 refreshDevices().then(pollScan).then(()=>{const connect=()=>{if(registry.active&&!scanBusy)$("connect").click()};if(document.readyState==="complete")connect();else window.addEventListener("load",connect,{once:true})}).catch(e=>$("message").textContent=e.message);
 setInterval(pollScan,2000);
 

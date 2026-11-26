@@ -359,6 +359,52 @@ def upload():
     os.replace(name, CATALOG)
     return jsonify(status="imported", summary=summarize(data))
 
+def discover_adb_ports(host):
+    """Use ADB's wireless-debugging DNS-SD records, never pairing ports."""
+    ip=ipaddress.ip_address(host)
+    ports=set()
+    for line in adb("mdns","services").splitlines():
+        fields=line.split()
+        if len(fields)!=3 or fields[1].rstrip(".")!="_adb-tls-connect._tcp":
+            continue
+        address,sep,port=fields[2].rpartition(":")
+        if not sep: continue
+        try:
+            if ipaddress.ip_address(address.strip("[]"))==ip and 1<=int(port)<=65535:
+                ports.add(int(port))
+        except ValueError:
+            continue
+    return sorted(ports)
+
+@app.post("/api/connection/discover")
+def discover_connection():
+    if not ADB_LOCK.acquire(blocking=False):
+        return jsonify(error="ADB operation in progress"),409
+    try:
+        d=devices.active_device(CONFIG)
+        if not d: raise ValueError("Save and select the projector first")
+        p=request.get_json()
+        if p.get("device")!=d["id"]: raise ValueError("Selected device changed")
+        host=d["host"]
+        diagnostic("ADB","Discovering wireless debugging port for "+host)
+        ports=[]
+        for attempt in range(3):
+            ports=discover_adb_ports(host)
+            if ports: break
+            if attempt<2: time.sleep(1)
+        if not ports:
+            raise ValueError("No wireless debugging connection advertised for this IP. Check Wireless debugging and mDNS connectivity, or enter the port manually.")
+        if len(ports)!=1:
+            raise ValueError("Multiple wireless debugging ports advertised: "+", ".join(map(str,ports))+". Verify the port on the projector.")
+        port=ports[0]
+        diagnostic("ADB",f"Discovered wireless debugging port {port} for {host}")
+        return jsonify(device=d["id"],host=host,port=port)
+    except Exception as exc:
+        diagnostic("Errors","Wireless ADB discovery: "+str(exc))
+        return jsonify(error=str(exc)),400
+    finally:
+        ADB_LOCK.release()
+
 @app.post("/api/connection")
 def connect():
     if request.headers.get("Sec-Fetch-Site") == "cross-site":

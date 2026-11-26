@@ -85,6 +85,20 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(result.status_code,409)
             adb.assert_not_called()
 
+    def test_discover_wireless_port(self):
+        records="List of discovered mdns services\nprojector _adb-tls-connect._tcp. 192.0.2.1:41367\npair _adb-tls-pairing._tcp. 192.0.2.1:44444\nother _adb-tls-connect._tcp. 192.0.2.2:55555\n"
+        with patch.object(manager,"adb",return_value=records) as adb:
+            self.assertEqual(manager.discover_adb_ports("192.0.2.1"),[41367])
+            adb.assert_called_once_with("mdns","services")
+
+    def test_discovery_preserves_saved_port(self):
+        device={"id":"projector","host":"192.0.2.1","port":12345}
+        with patch.object(manager.devices,"active_device",return_value=device), patch.object(manager,"discover_adb_ports",return_value=[41367]), patch.object(manager.devices,"save_device") as save:
+            result=self.client.post("/api/connection/discover",json={"device":"projector"})
+            self.assertEqual(result.status_code,200,result.json)
+            self.assertEqual(result.json["port"],41367)
+            save.assert_not_called()
+
 class ParcelTests(unittest.TestCase):
     def test_decode(self):
         obj = {"msg": {"source": {"value":5}}}
