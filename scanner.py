@@ -1,11 +1,36 @@
 """Conservative scanner: only context and index selectors are written."""
 import json
 import time
+from cli_transport import CliSession
 from schema import SERVICE, CONTEXT_KEYS, INDEXED, MODES, SIGNALS, EXTRA_SCAN_KEYS
 
 def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
-    def call(tx,payload):
-        return decode(adb("-s",target,"shell",f"service call {SERVICE} {tx} s16 '{json.dumps(payload,separators=(',',':'))}'"))
+    session = CliSession(target)
+    original_mask = None
+    mask_attempted = False
+    started = time.monotonic()
+    try:
+        session.start()
+        original_mask = session.call(1, {"get_value":"bypass_mask"})["bypass_mask"]
+        if type(original_mask) is not int or original_mask != 0:
+            raise ValueError(f"Expected normal bypass mask 0, got {original_mask}; scan not started")
+        mask_attempted = True
+        session.call(2, {"bypass_mask":2})
+        if session.call(1, {"get_value":"bypass_mask"}).get("bypass_mask") != 2:
+            raise ValueError("Picture update suppression failed")
+        return _scan(seed, session.call, progress, cancelled, on_source, session.recover)
+    finally:
+        try:
+            if mask_attempted:
+                session.recover()
+                session.call(2, {"bypass_mask":original_mask})
+                if session.call(1, {"get_value":"bypass_mask"}).get("bypass_mask") != original_mask:
+                    raise ValueError("Bypass mask restoration failed")
+        finally:
+            session.close()
+            print(f"APSM optimized scan elapsed: {time.monotonic()-started:.2f}s", flush=True)
+
+def _scan(seed, call, progress, cancelled, on_source, recover):
     def get(keys):
         last=None
         for _ in range(3):
@@ -14,13 +39,16 @@ def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
                 return result["msg"]
             except Exception as exc:
                 last=exc
+                recover()
                 time.sleep(.2)
         raise last
     def set_value(key,value):
         result=call(2,{key:value})
         if result.get("status")!=0 or result.get("result")!=0:
             raise ValueError(f"Selector rejected: {key}: {result}")
-        time.sleep(.15)
+        # Keep the proven settling delay for calibration selectors for now.
+        if key not in ("signal_dr_type","pic_mode"):
+            time.sleep(.15)
     def context():
         return {k:getter["value"] for k,getter in get(CONTEXT_KEYS).items() if k in CONTEXT_KEYS}
     original=context()
@@ -45,9 +73,11 @@ def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
         if c!=expected:
             raise ValueError(f"Context changed: expected {expected}, got {c}")
     def select(key,value):
-        if context().get("source")!=original["source"]:
+        current=context()
+        if current.get("source")!=original["source"]:
             raise ValueError("Source changed; aborting")
-        set_value(key,value)
+        if current.get(key)!=value:
+            set_value(key,value)
     def restore_index(expected, saved):
         for key,value in saved.items():
             check(expected)
@@ -98,12 +128,14 @@ def scan(target, seed, adb, decode, progress, cancelled, on_source=None):
                             entries[str(level)]={"settings":{k:values[k] for k in params}}
                         profile["indexed"][section]={"values":entries}
                 finally:
+                    recover()
                     restore_index(expected,saved)
                     selectors.pop((sid,mid),None)
                 group["profiles"][str(mid)]=profile
                 done+=1
                 progress(done,sid,mid)
     finally:
+        recover()
         if context().get("source")!=original["source"]:
             raise ValueError("Source changed; restoration stopped to avoid changing another input")
         for (sid,mid),saved in selectors.items():
