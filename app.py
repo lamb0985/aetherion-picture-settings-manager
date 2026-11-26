@@ -235,6 +235,9 @@ def live_state():
         if not seed.get("profiles"):
             seed=devices.snapshot(CONFIG,d["id"])
         keys=parameter_inventory(seed)
+        requested=p.get("keys",[])
+        if not isinstance(requested,list) or any(not isinstance(k,str) or k not in keys for k in requested):
+            raise ValueError("Invalid live parameter list")
         records={}
         for offset in range(0,len(keys),16):
             chunk=keys[offset:offset+16]
