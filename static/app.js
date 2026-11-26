@@ -62,15 +62,9 @@ window.addEventListener("pointerup",()=>{dragging=false});
 window.addEventListener("keyup",()=>{dragging=false});
 function selectLiveContext(state){
  const c=state.context;
- $("signal").replaceChildren();
- for(const [id,g] of Object.entries(data.profiles||{}))option($("signal"),id,(g.format||"Signal")+" ["+id+"]");
- if(!Array.from($("signal").options).some(o=>o.value===String(c.signal_dr_type)))option($("signal"),c.signal_dr_type,state.signal_name+" ["+c.signal_dr_type+"]");
- $("signal").value=c.signal_dr_type;
- $("profile").replaceChildren();
- for(const [id,p] of Object.entries(profiles()))option($("profile"),id,profileLabel(id,p)+" ["+id+"]");
- if(!Array.from($("profile").options).some(o=>o.value===String(c.pic_mode)))option($("profile"),c.pic_mode,profileLabel(c.pic_mode,{})+" ["+c.pic_mode+"]");
- $("profile").value=c.pic_mode;
- $("signal").disabled=false;$("profile").disabled=false;$("dbSource").disabled=true;
+ $("signal").replaceChildren();option($("signal"),c.signal_dr_type,state.signal_name+" ["+c.signal_dr_type+"]");
+ $("profile").replaceChildren();option($("profile"),c.pic_mode,profileLabel(c.pic_mode,{name:data.profiles[c.signal_dr_type]?.profiles?.[c.pic_mode]?.name})+" ["+c.pic_mode+"]");
+ $("signal").disabled=true;$("profile").disabled=true;$("dbSource").disabled=true;
  const s=$("dbSource");for(const o of Array.from(s.options))if(o.dataset.liveOnly)o.remove();
  if(!Array.from(s.options).some(o=>o.value===String(c.source))){option(s,c.source,state.source_name);s.lastChild.dataset.liveOnly="1"}
  s.value=c.source;
@@ -191,22 +185,8 @@ async function load(){
  metric("Snapshot source",data.summary.source_name??data.summary.source);metric("Profiles",data.summary.profiles);metric("General records",data.summary.general);metric("Indexed records",data.summary.indexed);
  if(isLive()){liveSignature="";await syncLive()}else chooseProfiles();
 }
-async function browseProfile(signal,mode){
- if(scanBusy||bulkBusy||writing)return;
- if(isLive()){
-   epoch++;live=null;liveSignature="";$("liveEdit").checked=false;
-   $("dbSource").disabled=false;$("signal").disabled=false;$("profile").disabled=false;
-   $("liveScope").textContent="Stored snapshots — read-only";
-   $("connection").textContent="Connected";$("connection").className="status ok";
-   await load();
- }
- if(Array.from($("signal").options).some(o=>o.value===signal))$("signal").value=signal;
- chooseProfiles();
- if(mode!==null&&Array.from($("profile").options).some(o=>o.value===mode))$("profile").value=mode;
- selectedLevels={};optionMenu=null;tabs();render();
-}
-$("signal").onchange=()=>browseProfile($("signal").value,null).catch(e=>$("liveMessage").textContent=e.message);
-$("profile").onchange=()=>browseProfile($("signal").value,$("profile").value).catch(e=>$("liveMessage").textContent=e.message);
+$("signal").onchange=()=>{if(!isLive())chooseProfiles()};
+$("profile").onchange=()=>{if(!isLive()){selectedLevels={};optionMenu=null;tabs();render()}};
 $("import").onclick=async()=>{
  const b=$("import");b.disabled=true;
  try{
