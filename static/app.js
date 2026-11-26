@@ -260,45 +260,32 @@ for(const [button,dialog] of [["openScan","scanDialog"],["openSource","sourceDia
 for(const button of document.querySelectorAll("[data-close-dialog]"))button.onclick=()=>$(button.dataset.closeDialog).close();
 for(const dialog of document.querySelectorAll(".utility-dialog"))dialog.addEventListener("click",e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
 
-// Match the display and natural menu height without constraining either panel.
+// The mirror follows its available width; only the menu follows the mirror.
 const menuRows=$("rows"),menuScreen=$("remoteScreen"),menuPanel=$("remotePanel");
 let alignmentFrame=0;
 function alignNativeMenu(){
  cancelAnimationFrame(alignmentFrame);
  alignmentFrame=requestAnimationFrame(()=>{
-   const aligned=menuPanel.open&&window.innerWidth>1000;
+   const rect=menuScreen.getBoundingClientRect();
+   const aligned=menuPanel.open&&window.innerWidth>1000&&!document.fullscreenElement&&rect.width>0;
    menuRows.classList.toggle("mirror-aligned",aligned);
-   menuScreen.classList.toggle("mirror-aligned",aligned);
-   if(!aligned){menuRows.style.removeProperty("--mirror-offset");menuRows.style.removeProperty("--shared-height");menuScreen.style.removeProperty("--shared-height");return}
-   const toolbar=$("menuColumn").querySelector(".profile-toolbar");
-   const offset=Math.max(0,menuScreen.getBoundingClientRect().top-toolbar.getBoundingClientRect().bottom-8);
-   // Measure intrinsic content, not the previously stretched menu.
-   const groups=[...menuRows.children];
-   let natural=0;
-   for(const group of groups){
-     const style=getComputedStyle(group);
-     const children=[...group.children];
-     if(group.classList.contains("native-menu")){
-       natural+=parseFloat(style.paddingTop)+parseFloat(style.paddingBottom)+parseFloat(style.borderTopWidth)+parseFloat(style.borderBottomWidth);
-       for(const child of children){const cs=getComputedStyle(child);natural+=child.getBoundingClientRect().height+parseFloat(cs.marginTop||0)+parseFloat(cs.marginBottom||0)}
-     }else natural+=group.getBoundingClientRect().height;
-     natural+=parseFloat(style.marginTop||0)+parseFloat(style.marginBottom||0);
+   if(!aligned){
+     menuRows.style.removeProperty("--mirror-offset");
+     menuRows.style.removeProperty("--mirror-height");
+     return;
    }
-   if(!groups.length)natural=40;
-   const width=menuScreen.getBoundingClientRect().width;
-   const height=Math.ceil(Math.max(width*9/16,natural));
+   const toolbar=$("menuColumn").querySelector(".profile-toolbar");
+   const offset=Math.max(0,rect.top-toolbar.getBoundingClientRect().bottom-8);
    menuRows.style.setProperty("--mirror-offset",offset+"px");
-   menuRows.style.setProperty("--shared-height",height+"px");
-   menuScreen.style.setProperty("--shared-height",height+"px");
+   menuRows.style.setProperty("--mirror-height",rect.height+"px");
  });
 }
 const mirrorLayoutObserver=new ResizeObserver(alignNativeMenu);
 mirrorLayoutObserver.observe(menuScreen);
 mirrorLayoutObserver.observe(menuPanel);
-mirrorLayoutObserver.observe(menuRows);
-const menuMutationObserver=new MutationObserver(alignNativeMenu);
-menuMutationObserver.observe(menuRows,{childList:true,subtree:true,characterData:true});
+mirrorLayoutObserver.observe($("menuColumn").querySelector(".profile-toolbar"));
 menuPanel.addEventListener("toggle",alignNativeMenu);
+document.addEventListener("fullscreenchange",alignNativeMenu);
 window.addEventListener("resize",alignNativeMenu);
 alignNativeMenu();
 
