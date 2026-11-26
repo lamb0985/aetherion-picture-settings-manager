@@ -48,12 +48,14 @@ def plan(snapshot,key,value,scope,current,selected):
     if key not in WRITABLE or type(value) is not int: raise ValueError("Unsupported bulk setter or value")
     if key in LIVE_RANGES and not LIVE_RANGES[key][0]<=value<=LIVE_RANGES[key][1]: raise ValueError("Value outside range")
     if key in LIVE_ENUMS and value not in LIVE_ENUMS[key]: raise ValueError("Unsupported enumeration")
-    if scope not in ("all","signal","selected"): raise ValueError("Invalid scope")
+    if scope not in ("all","signal","selected","dv_only","exclude_dv"): raise ValueError("Invalid scope")
     if scope=="selected" and (not isinstance(selected,list) or not selected): raise ValueError("Select at least one profile")
     rows=[]
     for sid,g in snapshot.get("profiles",{}).items():
         sid=int(sid)
         if scope=="signal" and sid!=current["signal_dr_type"]: continue
+        if scope=="dv_only" and sid!=5: continue
+        if scope=="exclude_dv" and sid==5: continue
         for mid,p in g.get("profiles",{}).items():
             mid=int(mid)
             if mid not in MODES.get(sid,()): continue

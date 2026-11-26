@@ -47,3 +47,23 @@ class BulkTests(unittest.TestCase):
         self.assertNotIn("pq_apply",writes)
         self.assertEqual([r["status"] for r in results],["applied","applied"])
         self.assertEqual(len(verified),2)
+
+    def test_dolby_vision_filters(self):
+        from schema import MODES
+        key="2p_wb_gain_red"
+        item={"value":0,"state":0,"range":[-25,0,25]}
+        snap={"profiles":{str(sid):{"profiles":{str(mid):{"settings":{key:item}} for mid in mids}} for sid,mids in MODES.items()}}
+        current={"source":9,"signal_dr_type":0,"pic_mode":0}
+        dv=plan(snap,key,5,"dv_only",current,[])
+        other=plan(snap,key,5,"exclude_dv",current,[])
+        self.assertEqual(len(dv),4)
+        self.assertEqual(len(other),49)
+        self.assertEqual({r["signal"] for r in dv},{5})
+        self.assertEqual({r["mode"] for r in dv},{0,1,2,4})
+        self.assertEqual({r["signal"] for r in other},{0,1,2,3,4,6})
+        self.assertTrue(all(r["status"]=="candidate" for r in dv+other))
+        self.assertEqual(len(plan(snap,key,5,"all",current,[])),53)
+        self.assertEqual(len(plan(snap,key,5,"signal",current,[])),9)
+        self.assertEqual(len(plan(snap,key,5,"selected",current,["5:4"])),1)
+        with self.assertRaises(ValueError):
+            plan({"profiles":{"0":snap["profiles"]["0"]}},key,5,"dv_only",current,[])
