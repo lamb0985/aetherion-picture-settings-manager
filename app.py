@@ -399,7 +399,9 @@ def bulk_cancel():
 @app.post("/api/bulk/preview")
 def bulk_preview():
     global BULK_PLAN
-    if not ADB_LOCK.acquire(blocking=False): return jsonify(error="ADB operation in progress"),409
+    if not ADB_LOCK.acquire(blocking=False):
+        diagnostic("Errors","Bulk request: ADB operation in progress")
+        return jsonify(error="ADB operation in progress"),409
     try:
         p=request.get_json()
         d=devices.active_device(CONFIG)
@@ -408,16 +410,22 @@ def bulk_preview():
         original=live_context(target)
         snapshot=devices.snapshot(CONFIG,d["id"],original["source"])
         rows=bulk.plan(snapshot,p["key"],p["value"],p["scope"],original,p.get("selected",[]))
+        diagnostic("Bulk",f"Preview: {p['key']}={p['value']}; {len(rows)} profiles")
         token=secrets.token_urlsafe(24)
         BULK_PLAN={"token":token,"created":time.monotonic(),"device":d["id"],"original":original,"key":p["key"],"value":p["value"],"rows":rows}
         return jsonify(token=token,rows=rows,source=source_name(original["source"]))
-    except Exception as exc: return jsonify(error=str(exc)),400
+    except Exception as exc:
+        diagnostic("Errors","Bulk preview: "+str(exc))
+        return jsonify(error=str(exc)),400
     finally: ADB_LOCK.release()
 
 @app.post("/api/bulk")
 def start_bulk():
     global BULK_PLAN
-    if not ADB_LOCK.acquire(blocking=False): return jsonify(error="ADB operation in progress"),409
+    mirror_locked=False
+    if not ADB_LOCK.acquire(blocking=False):
+        diagnostic("Errors","Bulk request: ADB operation in progress")
+        return jsonify(error="ADB operation in progress"),409
     try:
         p=request.get_json()
         plan=BULK_PLAN
@@ -427,10 +435,16 @@ def start_bulk():
         target=devices.address(d["host"],d["port"])
         if live_context(target)!=plan["original"]: raise ValueError("Projector context changed; preview again")
         if not any(x["status"]=="candidate" for x in plan["rows"]): raise ValueError("No eligible candidates")
-        remote.stop()
         folder=Path(os.getenv("BACKUP_DIR","/backups"))
         folder.mkdir(parents=True,exist_ok=True)
         backup=folder/("bulk-"+datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")+".json")
+        if remote.running():
+            if remote.target!=target: raise ValueError("Mirror connected to another device")
+            try:
+                mirror_locked=remote.set_view_only(True)
+            except Exception as exc:
+                remote.stop()
+                diagnostic("Errors","Bulk mirror lock failed; mirror stopped: "+str(exc))
         BULK_PLAN=None;BULK_CANCEL.clear()
         BULK.update(status="running",done=0,total=len(plan["rows"]),results=[],error=None,backup=backup.name)
         diagnostic("Bulk", f"Bulk apply started: {BULK['total']} profiles")
@@ -440,20 +454,60 @@ def start_bulk():
             BULK["done"]=len(BULK["results"])
         def worker():
             try:
-                bulk.run(lambda tx,p:picture_call(target,tx,p),lambda:live_context(target),plan["original"],plan["key"],plan["value"],plan["rows"],backup,progress,BULK_CANCEL.is_set)
-                BULK.update(status="complete")
-                diagnostic("Bulk","Bulk apply completed")
+                from cli_transport import CliSession
+                cli=CliSession(target)
+                original_mask=None
+                attempted=False
+                try:
+                    cli.start()
+                    original_mask=cli.call(1,{"get_value":"bypass_mask"})["bypass_mask"]
+                    if original_mask!=0: raise ValueError("Expected bypass mask 0")
+                    attempted=True
+                    cli.call(2,{"bypass_mask":2})
+                    if cli.call(1,{"get_value":"bypass_mask"}).get("bypass_mask")!=2:
+                        raise RuntimeError("Bulk bypass activation failed")
+                    diagnostic("Bulk","Persistent CLI active; bypass mask verified")
+                    def context():
+                        result=cli.call(1,{"cmd":"get_video_all","msg":{k:["value"] for k in CONTEXT_KEYS}})["msg"]
+                        return {k:result[k]["value"] for k in CONTEXT_KEYS}
+                    bulk.run(cli.call,context,plan["original"],plan["key"],plan["value"],plan["rows"],backup,progress,BULK_CANCEL.is_set,cli.recover,
+                             lambda c,r:devices.merge_live(CONFIG,d["id"],c,r))
+                    diagnostic("Bulk","Original context restored")
+                finally:
+                    try:
+                        if attempted:
+                            cli.recover()
+                            cli.call(2,{"bypass_mask":original_mask})
+                            if cli.call(1,{"get_value":"bypass_mask"}).get("bypass_mask")!=original_mask:
+                                raise RuntimeError("Bulk bypass restoration failed")
+                            diagnostic("Bulk","Original bypass mask restored")
+                    finally:
+                        cli.close()
+                failures=sum(x["status"]=="failed" for x in BULK["results"])
+                BULK.update(status="failed" if failures else "complete",error=f"{failures} rejected writes" if failures else None)
+                diagnostic("Bulk","Bulk operation finished")
             except InterruptedError as exc:
                 BULK.update(status="cancelled",error=str(exc))
                 diagnostic("Bulk",str(exc))
             except Exception as exc:
                 BULK.update(status="failed",error=str(exc))
                 diagnostic("Errors","Bulk: "+str(exc))
-            finally: ADB_LOCK.release()
+            finally:
+                try:
+                    if mirror_locked: remote.set_view_only(False)
+                except Exception as exc:
+                    remote.stop()
+                    diagnostic("Errors","Bulk mirror unlock failed: "+str(exc))
+                finally: ADB_LOCK.release()
         threading.Thread(target=worker,daemon=True).start()
         return jsonify(dict(BULK)),202
     except Exception as exc:
-        ADB_LOCK.release()
+        diagnostic("Errors","Bulk start: "+str(exc))
+        try:
+            if mirror_locked: remote.set_view_only(False)
+        except Exception:
+            remote.stop()
+        finally: ADB_LOCK.release()
         return jsonify(error=str(exc)),400
 
 SCAN = {"status":"idle","done":0,"total":sum(map(len,MODES.values()))}

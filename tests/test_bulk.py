@@ -19,3 +19,31 @@ class BulkTests(unittest.TestCase):
         self.assertTrue(inventory(snap)[0]["enabled"])
     def test_no_arbitrary_writes(self):
         with self.assertRaises(ValueError): plan({},"source",4,"all",{"signal_dr_type":0},[])
+
+    def test_run_preserves_native_scope(self):
+        import tempfile
+        from pathlib import Path
+        from bulk import run
+        ctx={"source":9,"signal_dr_type":0,"pic_mode":0}
+        original=dict(ctx)
+        values={0:1,1:2}
+        writes=[]
+        results=[]
+        verified=[]
+        def call(tx,payload):
+            if tx==2:
+                key,value=next(iter(payload.items()))
+                writes.append(key)
+                if key in ("pic_mode","signal_dr_type"): ctx[key]=value
+                elif key=="color_temp": values[ctx["pic_mode"]]=value
+                else: raise AssertionError(key)
+                return {"status":0,"result":0}
+            data={**ctx,"pq_apply":1,"color_temp":values[ctx["pic_mode"]],"memc":0}
+            return {"msg":{k:{"value":data[k],"state":0} for k in payload["msg"]}}
+        with tempfile.TemporaryDirectory() as folder:
+            run(call,lambda:dict(ctx),original,"color_temp",0,[{"signal":0,"mode":m,"status":"candidate"} for m in (0,1)],Path(folder)/"backup.json",results.append,lambda:False,on_verified=lambda c,r:verified.append((c,r)))
+        self.assertEqual(ctx,original)
+        self.assertEqual(values,{0:0,1:0})
+        self.assertNotIn("pq_apply",writes)
+        self.assertEqual([r["status"] for r in results],["applied","applied"])
+        self.assertEqual(len(verified),2)

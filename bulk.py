@@ -64,9 +64,8 @@ def plan(snapshot,key,value,scope,current,selected):
     if not rows: raise ValueError("No scanned profiles for requested scope")
     return rows
 
-def run(call,context,original,key,value,rows,backup,progress,cancelled):
+def run(call,context,original,key,value,rows,backup,progress,cancelled,recover=lambda:None,on_verified=lambda c,r:None):
     modes={}
-    scopes={}
     journal={"original":original,"key":key,"value":value,"entries":[]}
     def persist():
         tmp=backup.with_suffix(".tmp")
@@ -78,33 +77,29 @@ def run(call,context,original,key,value,rows,backup,progress,cancelled):
     def check(expected):
         if context()!=expected: raise RuntimeError("Context changed; operation stopped")
     def same_source():
-        if context()["source"]!=original["source"]: raise RuntimeError("Source changed; restoration stopped")
+        c=context()
+        if c["source"]!=original["source"]: raise RuntimeError("Source changed; restoration stopped")
+        return c
     def set_value(k,v):
         same_source()
         result=call(2,{k:v})
         if result.get("status")!=0 or result.get("result")!=0: raise ValueError(f"Native setter rejected {k}")
-        time.sleep(.15)
     def select(sid,mid):
-        set_value("signal_dr_type",sid)
-        c=context()
-        if c["source"]!=original["source"] or c["signal_dr_type"]!=sid: raise RuntimeError("Signal selection failed")
+        c=same_source()
+        if c["signal_dr_type"]!=sid:
+            set_value("signal_dr_type",sid)
+            c=same_source()
+        if c["signal_dr_type"]!=sid: raise RuntimeError("Signal selection failed")
         modes.setdefault(sid,c["pic_mode"])
-        set_value("pic_mode",mid)
+        if c["pic_mode"]!=mid: set_value("pic_mode",mid)
         expected={"source":original["source"],"signal_dr_type":sid,"pic_mode":mid}
         check(expected)
         return expected
-    def restore_scope(expected,scope):
-        check(expected)
-        if get("pq_apply").get("pq_apply",{}).get("value")!=scope:
-            set_value("pq_apply",scope)
-            check(expected)
-            if get("pq_apply").get("pq_apply",{}).get("value")!=scope: raise RuntimeError("Apply scope restoration failed")
     persist()
+    check(original)
     try:
         for row in rows:
             if cancelled(): raise InterruptedError("Bulk apply cancelled")
-            if row["status"]=="skip":
-                progress(row);continue
             sid,mid=row["signal"],row["mode"]
             expected=select(sid,mid)
             records=get(key,"pq_apply","memc")
@@ -117,44 +112,33 @@ def run(call,context,original,key,value,rows,backup,progress,cancelled):
                 progress({**row,"status":"skip","reason":"Unknown apply scope"});continue
             previous=records[key]["value"]
             if previous==value:
+                on_verified(expected,{key:records[key],"pq_apply":records["pq_apply"]})
                 progress({**row,"status":"unchanged","reason":"Already target value"});continue
             entry={"context":expected,"previous":previous,"scope":scope,"status":"pending"}
             journal["entries"].append(entry);persist()
-            scopes[(sid,mid)]=scope
+            check(expected)
             try:
-                if scope==1:
-                    set_value("pq_apply",0)
-                    check(expected)
-                    if get("pq_apply").get("pq_apply",{}).get("value")!=0: raise RuntimeError("Cannot isolate current source")
-                check(expected)
-                fresh=get(key,"pq_apply","memc")
-                if fresh.get("pq_apply",{}).get("value")!=0: raise RuntimeError("Apply scope changed")
-                if fresh.get(key,{}).get("value")!=previous: raise RuntimeError("Setting changed externally")
-                reason=eligibility(key,value,fresh.get(key),sid,fresh)
-                if reason:
-                    entry["status"]="skip";entry["reason"]=reason;persist()
-                    progress({**row,"status":"skip","reason":reason});continue
-                check(expected)
-                # Treat rejection as a failed write; verify actual value before proceeding.
-                try:
-                    set_value(key,value)
-                except ValueError as exc:
-                    check(expected)
-                    actual=get(key).get(key,{}).get("value")
-                    entry.update(status="failed",actual=actual,reason=str(exc));persist()
-                    if actual!=previous: raise RuntimeError("Rejected setter changed value; stopped")
-                    progress({**row,"status":"failed","reason":str(exc)});continue
+                set_value(key,value)
+            except ValueError as exc:
+                recover()
                 check(expected)
                 actual=get(key).get(key,{}).get("value")
-                entry.update(status="applied" if actual==value else "failed",actual=actual);persist()
-                if actual!=value: raise RuntimeError("Write readback mismatch; stopped")
-                progress({**row,"status":"applied","reason":f"{previous} → {actual}"})
-            finally:
-                restore_scope(expected,scope)
-                scopes.pop((sid,mid),None)
+                entry.update(status="failed",actual=actual,reason=str(exc));persist()
+                progress({**row,"status":"failed","reason":str(exc)})
+                if actual!=previous: raise RuntimeError("Rejected setter changed value; stopped")
+                continue
+            check(expected)
+            verified=get(key,"pq_apply")
+            actual=verified.get(key,{}).get("value")
+            entry.update(status="applied" if actual==value else "failed",actual=actual);persist()
+            if actual!=value or verified.get("pq_apply",{}).get("value")!=scope:
+                progress({**row,"status":"failed","reason":"Write or scope readback mismatch"})
+                raise RuntimeError("Write or scope readback mismatch; stopped")
+            on_verified(expected,verified)
+            progress({**row,"status":"applied","reason":f"{previous} → {actual}"})
     finally:
+        recover()
         same_source()
-        for (sid,mid),scope in scopes.items(): restore_scope(select(sid,mid),scope)
         for sid,mid in list(modes.items()): select(sid,mid)
         select(original["signal_dr_type"],original["pic_mode"])
         check(original)

@@ -62,9 +62,15 @@ window.addEventListener("pointerup",()=>{dragging=false});
 window.addEventListener("keyup",()=>{dragging=false});
 function selectLiveContext(state){
  const c=state.context;
- $("signal").replaceChildren();option($("signal"),c.signal_dr_type,state.signal_name+" ["+c.signal_dr_type+"]");
- $("profile").replaceChildren();option($("profile"),c.pic_mode,profileLabel(c.pic_mode,{name:data.profiles[c.signal_dr_type]?.profiles?.[c.pic_mode]?.name})+" ["+c.pic_mode+"]");
- $("signal").disabled=true;$("profile").disabled=true;$("dbSource").disabled=true;
+ $("signal").replaceChildren();
+ for(const [id,g] of Object.entries(data.profiles||{}))option($("signal"),id,(g.format||"Signal")+" ["+id+"]");
+ if(!Array.from($("signal").options).some(o=>o.value===String(c.signal_dr_type)))option($("signal"),c.signal_dr_type,state.signal_name+" ["+c.signal_dr_type+"]");
+ $("signal").value=c.signal_dr_type;
+ $("profile").replaceChildren();
+ for(const [id,p] of Object.entries(profiles()))option($("profile"),id,profileLabel(id,p)+" ["+id+"]");
+ if(!Array.from($("profile").options).some(o=>o.value===String(c.pic_mode)))option($("profile"),c.pic_mode,profileLabel(c.pic_mode,{})+" ["+c.pic_mode+"]");
+ $("profile").value=c.pic_mode;
+ $("signal").disabled=false;$("profile").disabled=false;$("dbSource").disabled=true;
  const s=$("dbSource");for(const o of Array.from(s.options))if(o.dataset.liveOnly)o.remove();
  if(!Array.from(s.options).some(o=>o.value===String(c.source))){option(s,c.source,state.source_name);s.lastChild.dataset.liveOnly="1"}
  s.value=c.source;
@@ -185,7 +191,22 @@ async function load(){
  metric("Snapshot source",data.summary.source_name??data.summary.source);metric("Profiles",data.summary.profiles);metric("General records",data.summary.general);metric("Indexed records",data.summary.indexed);
  if(isLive()){liveSignature="";await syncLive()}else chooseProfiles();
 }
-$("signal").onchange=chooseProfiles;$("profile").onchange=()=>{selectedLevels={};tabs();render()};
+async function browseProfile(signal,mode){
+ if(scanBusy||bulkBusy||writing)return;
+ if(isLive()){
+   epoch++;live=null;liveSignature="";$("liveEdit").checked=false;
+   $("dbSource").disabled=false;$("signal").disabled=false;$("profile").disabled=false;
+   $("liveScope").textContent="Stored snapshots — read-only";
+   $("connection").textContent="Connected";$("connection").className="status ok";
+   await load();
+ }
+ if(Array.from($("signal").options).some(o=>o.value===signal))$("signal").value=signal;
+ chooseProfiles();
+ if(mode!==null&&Array.from($("profile").options).some(o=>o.value===mode))$("profile").value=mode;
+ selectedLevels={};optionMenu=null;tabs();render();
+}
+$("signal").onchange=()=>browseProfile($("signal").value,null).catch(e=>$("liveMessage").textContent=e.message);
+$("profile").onchange=()=>browseProfile($("signal").value,$("profile").value).catch(e=>$("liveMessage").textContent=e.message);
 $("import").onclick=async()=>{
  const b=$("import");b.disabled=true;
  try{
@@ -276,14 +297,14 @@ document.addEventListener("fullscreenchange",alignNativeMenu);
 window.addEventListener("resize",alignNativeMenu);
 alignNativeMenu();
 
-let bulkOptions=[],bulkToken=null,bulkLast="idle";
+let bulkOptions=[],bulkToken=null,bulkLast="idle",bulkStarting=false;
 function invalidateBulk(){bulkToken=null;$("bulkApply").disabled=true;$("bulkResults").replaceChildren()}
 function bulkRows(rows){$("bulkResults").replaceChildren();for(const item of rows){const el=document.createElement("div");el.className="bulk-result";el.textContent=item.name+" · "+item.status+" · "+item.reason;$("bulkResults").append(el)}}
 function bulkSelect(){invalidateBulk();const item=bulkOptions.find(x=>x.key===$("bulkKey").value);$("bulkValue").replaceChildren();$("bulkIndexLabel").hidden=!item?.index_count;$("bulkIndex").replaceChildren();if(item?.index_count)for(let i=0;i<item.index_count;i++)option($("bulkIndex"),i,calibrationLabel(item.section,i,{}));for(const v of item?.values||[])option($("bulkValue"),v,display(item.key,{value:v},label(item.key)));$("bulkHint").textContent=item?(item.enabled?item.count+" scanned profiles contain this setting. Live checks required.":item.reason):"No scan catalog";$("bulkPreview").disabled=!item?.enabled||bulkBusy}
 $("openBulk").onclick=async()=>{try{if(!$("bulkDialog").open)$("bulkDialog").showModal();const result=await api("/api/bulk/options");bulkOptions=result.settings;$("bulkKey").replaceChildren();for(const item of bulkOptions)option($("bulkKey"),item.key,label(item.key)+(item.enabled?"":" (read-only)"));const first=bulkOptions.find(x=>x.enabled);if(first)$("bulkKey").value=first.key;$("bulkProfiles").replaceChildren();for(const [sid,g] of Object.entries(data.profiles||{}))for(const [mid,p] of Object.entries(g.profiles||{})){const l=document.createElement("label"),c=document.createElement("input");c.type="checkbox";c.value=sid+":"+mid;c.onchange=invalidateBulk;l.append(c, g.format+" / "+p.name);$("bulkProfiles").append(l)}bulkSelect();await pollBulk()}catch(e){$("bulkStatus").textContent=e.message}};
 $("bulkKey").onchange=bulkSelect;$("bulkValue").onchange=invalidateBulk;$("bulkScope").onchange=()=>{$("bulkProfiles").hidden=$("bulkScope").value!=="selected";invalidateBulk()};
-$("bulkPreview").onclick=async()=>{invalidateBulk();try{const result=await api("/api/bulk/preview",{device:registry.active,key:$("bulkKey").value,value:Number($("bulkValue").value),scope:$("bulkScope").value,selected:[...$("bulkProfiles").querySelectorAll("input:checked")].map(c=>c.value)});bulkToken=result.token;bulkRows(result.rows);$("bulkStatus").textContent=result.source+" · "+result.rows.filter(x=>x.status==="candidate").length+" candidates · "+result.rows.filter(x=>x.status==="skip").length+" skipped";$("bulkApply").disabled=!result.rows.some(x=>x.status==="candidate")}catch(e){$("bulkStatus").textContent=e.message}};
-$("bulkApply").onclick=async()=>{if(!bulkToken||!confirm("Apply the selected value to candidate profiles on the current input? The mirror will stop temporarily. Do not operate the projector during the operation."))return;const token=bulkToken;bulkToken=null;$("bulkApply").disabled=true;bulkBusy=true;epoch++;live=null;liveSignature="";render();try{for(let i=0;reading&&i<200;i++)await new Promise(r=>setTimeout(r,25));await api("/api/bulk",{token});await pollBulk()}catch(e){bulkBusy=false;$("bulkStatus").textContent=e.message;syncLive()}};
+$("bulkPreview").onclick=async()=>{invalidateBulk();const button=$("bulkPreview");button.disabled=true;writing=true;try{for(let i=0;reading&&i<200;i++)await new Promise(r=>setTimeout(r,25));if(reading)throw Error("Live read still busy; try again");const result=await api("/api/bulk/preview",{device:registry.active,key:$("bulkKey").value,value:Number($("bulkValue").value),scope:$("bulkScope").value,selected:[...$("bulkProfiles").querySelectorAll("input:checked")].map(c=>c.value)});bulkToken=result.token;bulkRows(result.rows);$("bulkStatus").textContent=result.source+" · "+result.rows.filter(x=>x.status==="candidate").length+" candidates · "+result.rows.filter(x=>x.status==="skip").length+" skipped";$("bulkApply").disabled=!result.rows.some(x=>x.status==="candidate")}catch(e){$("bulkStatus").textContent=e.message}finally{writing=false;button.disabled=bulkBusy}};
+$("bulkApply").onclick=async()=>{if(!bulkToken||!confirm("Apply the selected value to candidate profiles on the current input? Do not operate the projector during the operation."))return;const token=bulkToken;bulkToken=null;$("bulkApply").disabled=true;bulkStarting=true;bulkBusy=true;epoch++;live=null;liveSignature="";render();try{for(let i=0;reading&&i<200;i++)await new Promise(r=>setTimeout(r,25));await api("/api/bulk",{token});bulkStarting=false;await pollBulk()}catch(e){bulkStarting=false;bulkBusy=false;$("bulkStatus").textContent=e.message;syncLive()}};
 $("bulkCancel").onclick=()=>api("/api/bulk/cancel",{}).catch(e=>$("bulkStatus").textContent=e.message);
-async function pollBulk(){try{const s=await api("/api/bulk"),was=bulkBusy;bulkBusy=s.status==="running";$("bulkProgress").max=s.total||1;$("bulkProgress").value=s.done;if(!bulkToken)$("bulkStatus").textContent=s.status+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"")+(s.backup?" · Backup: "+s.backup:"");if(s.status!=="idle"&&!bulkToken)bulkRows(s.results||[]);$("bulkCancel").disabled=!bulkBusy;$("openBulk").textContent=bulkBusy?"Bulk Apply · "+s.done+"/"+s.total:"Bulk Apply";for(const id of ["bulkKey","bulkValue","bulkScope"])$(id).disabled=bulkBusy;$("bulkPreview").disabled=bulkBusy||!bulkOptions.find(x=>x.key===$("bulkKey").value)?.enabled;if(was&&!bulkBusy){epoch++;live=null;liveSignature="";await syncLive();if(window.apsmStartMirror)window.apsmStartMirror()}bulkLast=s.status}catch(e){$("bulkStatus").textContent=e.message}}
+async function pollBulk(){if(bulkStarting)return;try{const s=await api("/api/bulk"),was=bulkBusy;bulkBusy=s.status==="running";$("bulkProgress").max=s.total||1;$("bulkProgress").value=s.done;if(!bulkToken)$("bulkStatus").textContent=s.status+" · "+s.done+"/"+s.total+(s.error?" · "+s.error:"")+(s.backup?" · Backup: "+s.backup:"");if(s.status!=="idle"&&!bulkToken)bulkRows(s.results||[]);$("bulkCancel").disabled=!bulkBusy;$("openBulk").textContent=bulkBusy?"Bulk Apply · "+s.done+"/"+s.total:"Bulk Apply";for(const id of ["bulkKey","bulkValue","bulkScope"])$(id).disabled=bulkBusy;$("bulkPreview").disabled=bulkBusy||!bulkOptions.find(x=>x.key===$("bulkKey").value)?.enabled;if(was&&!bulkBusy){epoch++;live=null;liveSignature="";await syncLive();await load()}bulkLast=s.status}catch(e){$("bulkStatus").textContent=e.message}}
 setInterval(pollBulk,1500);pollBulk();

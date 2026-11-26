@@ -157,3 +157,5 @@ main:has(.unified-workspace){width:100%;max-width:none}
 .diag-Scanner{color:#8be9fd}.diag-ADB{color:#ffb86c}.diag-Middleware{color:var(--muted)}.diag-Errors{color:var(--red)}.diag-Bulk{color:var(--accent)}
 
 .sidebar-tools{display:flex;flex-direction:column;gap:4px;min-width:0;background:#21222c;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px}.sidebar-tools button{text-align:left;width:100%;border-color:transparent}.sidebar-tools button:hover,.sidebar-tools button.active{border-color:var(--accent)}.help-content{max-height:65vh;overflow:auto;padding:0 8px}.help-content h3{color:var(--accent);font-size:14px;margin:12px 0 4px}.help-content p{margin:0 0 10px;color:var(--fg)}
+
+.header-device .header-actions{height:32px;align-self:flex-end;align-items:center}.header-device .header-actions .status{line-height:32px;margin:0 2px}.settings-mirror-grid #menuColumn>.connection-inline{border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin:0 0 8px;background:var(--panel);font-size:12px;min-width:0;display:block}.settings-mirror-grid #menuColumn>.connection-inline p{margin:2px 0;color:var(--muted);overflow-wrap:anywhere}

@@ -21,12 +21,14 @@ async function updateScanInput(){
     const response=await fetch("/api/scan",{cache:"no-store"});
     if(!response.ok)return;
     const state=await response.json();
-    const locked=state.status==="running";
+    const bulkResponse=await fetch("/api/bulk",{cache:"no-store"});
+    const bulkState=bulkResponse.ok?await bulkResponse.json():{};
+    const locked=state.status==="running"||bulkState.status==="running";
     if(rfb)rfb.viewOnly=locked;
     for(const button of document.querySelectorAll("[data-key]"))button.disabled=locked;
     if(locked!==scanInputLocked){
       scanInputLocked=locked;
-      if(rfb)msg(locked?"Mirror connected · scan running · view only":"Mirror connected · controls enabled");
+      if(rfb)msg(locked?"Mirror connected · picture operation · view only":"Mirror connected · controls enabled");
     }
   }catch(e){}finally{scanPollBusy=false;}
 }
